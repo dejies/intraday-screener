@@ -1,0 +1,7 @@
+pandas>=2.0,<3
+numpy>=1.24,<3
+flask>=3.0,<4
+requests>=2.31
+websocket-client>=1.7,<2
+pytest>=8
+websockets>=12,<14   # tests only: a fake Dhan feed server
