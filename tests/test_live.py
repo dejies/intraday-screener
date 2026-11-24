@@ -137,7 +137,7 @@ def test_screening_day():
 def test_live_engine_scans_whole_universe_on_simulated_feed(cfg):
     cfg.DEEP_SCAN_ALL_IF_UNDER = 10          # force the "liquid stocks only" deep scan
     cfg.DASHBOARD_MAX_ROWS = 10
-    watch = load_watchlist(config.WATCHLIST_FILE)
+    watch = load_watchlist(config.NIFTY50_FILE)
     symbols = watch + [f"DEMO{i:04d}" for i in range(1, 31)]
     demo = DemoClient(symbols, speed=1, start="09:10", benchmark=cfg.BENCHMARK)
     clock = {"t": datetime.combine(demo.day, dtime(9, 10))}

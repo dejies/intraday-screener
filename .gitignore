@@ -1,0 +1,10 @@
+.env
+.venv/
+data/
+__pycache__/
+.pytest_cache/
+security_ids_override.csv
+logs/
+backups/
+*.egg-info/
+.DS_Store

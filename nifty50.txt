@@ -1,5 +1,5 @@
 # One NSE trading symbol per line. Lines starting with # are ignored.
-# Default: NIFTY 50 constituents as of late 2025 - index members change twice a year,
+# NIFTY 50 constituents as of late 2025 - index members change twice a year,
 # so check the current list on nseindia.com and edit freely.
 ADANIENT
 ADANIPORTS

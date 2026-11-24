@@ -4,90 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Intraday Screener</title>
-<style>
-  :root {
-    --bg: #f5f6f8; --panel: #ffffff; --text: #1a1f26; --muted: #5d6877; --border: #e1e5ea;
-    --bull: #0b7a43; --bull-bg: #e3f4ea; --bear: #c0262d; --bear-bg: #fbe8e9;
-    --accent: #2b59e0; --chip: #eef1f5; --warn: #8a5300; --warn-bg: #fff3dc; --shadow: 0 8px 30px rgba(0,0,0,.18);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #0e1115; --panel: #161a20; --text: #e5e8ed; --muted: #97a2af; --border: #283039;
-      --bull: #3ecf8e; --bull-bg: #10291d; --bear: #ff6b6f; --bear-bg: #2d1416;
-      --accent: #7ea3ff; --chip: #222831; --warn: #f2b558; --warn-bg: #2c220f; --shadow: 0 8px 30px rgba(0,0,0,.6);
-    }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-         font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--border);
-           padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
-  h1 { font-size: 17px; margin: 0 6px 0 0; }
-  h2 { font-size: 15px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
-  .badge { padding: 2px 8px; border-radius: 999px; background: var(--chip); font-size: 12px; white-space: nowrap; }
-  .badge.live { background: var(--bull-bg); color: var(--bull); }
-  .badge.demo { background: var(--warn-bg); color: var(--warn); }
-  .muted { color: var(--muted); font-size: 12px; }
-  .controls { margin-left: auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; }
-  button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
-           background: var(--panel); color: var(--text); cursor: pointer; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  main { padding: 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; max-width: 1600px; margin: 0 auto; }
-  main > *, .grid > * { min-width: 0; }
-  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 780px), 1fr)); }
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; min-width: 0; }
-  .panel.bull { border-top: 3px solid var(--bull); }
-  .panel.bear { border-top: 3px solid var(--bear); }
-  .count { font-weight: 400; color: var(--muted); font-size: 13px; }
-  .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
-  th, td { padding: 6px 5px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border); }
-  th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); font-weight: 600; }
-  th:nth-child(-n+2), td:nth-child(-n+2) { text-align: left; }
-  tr.top td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
-  .up { color: var(--bull); } .down { color: var(--bear); }
-  .tag { display: inline-block; padding: 0 5px; border-radius: 6px; font-size: 11px; background: var(--chip); margin-left: 3px; }
-  .tag.top { background: var(--accent); color: #fff; }
-  .tag.bo-up { background: var(--bull-bg); color: var(--bull); font-weight: 600; }
-  .tag.bo-down { background: var(--bear-bg); color: var(--bear); font-weight: 600; }
-  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; background: var(--muted); }
-  .dot.bull { background: var(--bull); } .dot.bear { background: var(--bear); }
-  .score { display: inline-flex; gap: 2px; vertical-align: middle; margin-left: 6px; }
-  .score i { width: 5px; height: 12px; border-radius: 1px; background: var(--border); }
-  .bull .score i.on { background: var(--bull); } .bear .score i.on { background: var(--bear); }
-  .empty { color: var(--muted); padding: 18px 4px; text-align: center; }
-  .banner { padding: 10px 16px; background: var(--warn-bg); color: var(--warn); border-bottom: 1px solid var(--border); }
-  .banner.error { background: var(--bear-bg); color: var(--bear); }
-  #alertLog { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; }
-  #alertLog li { padding: 6px 2px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
-  details > summary { cursor: pointer; font-weight: 600; }
-  .legend { columns: 2 320px; column-gap: 28px; margin-top: 10px; }
-  .legend p { margin: 0 0 8px; break-inside: avoid; }
-  /* Breakout pop-up */
-  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 20; padding: 16px; }
-  .modal[hidden] { display: none; }
-  .modal-box { background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); width: min(560px, 100%);
-               max-height: 85vh; overflow-y: auto; padding: 18px; border: 1px solid var(--border); animation: pop .18s ease-out; }
-  @keyframes pop { from { transform: scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
-  .alert-card { border: 1px solid var(--border); border-left: 4px solid var(--bull); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
-  .alert-card.down { border-left-color: var(--bear); }
-  .alert-card.rvol { background: color-mix(in srgb, var(--warn) 7%, transparent); }
-  .rv-very_high { font-weight: 700; color: var(--warn); } .rv-low { color: var(--muted); }
-  .alert-card .title { font-weight: 700; font-size: 15px; }
-  .checks { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
-  .checks span { padding: 1px 7px; border-radius: 6px; background: var(--chip); }
-  .checks span.ok { background: var(--bull-bg); color: var(--bull); }
-  .checks span.no { background: var(--bear-bg); color: var(--bear); }
-  .modal-actions { display: flex; justify-content: flex-end; margin-top: 6px; }
-  .search { display: grid; gap: 8px; }
-  .search input { font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);
-                  background: var(--bg); color: var(--text); width: min(420px, 100%); }
-  .tag.bias-bullish { background: var(--bull-bg); color: var(--bull); }
-  .tag.bias-bearish { background: var(--bear-bg); color: var(--bear); }
-  .badge.warn { background: var(--warn-bg); color: var(--warn); }
-  .badge.err { background: var(--bear-bg); color: var(--bear); }
-  .disclaimer { font-size: 12px; color: var(--muted); text-align: center; padding: 0 16px 20px; }
-</style>
+<link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
 <header>
@@ -96,12 +13,18 @@
   <span id="phase" class="badge"></span>
   <span id="bench" class="badge"></span>
   <span id="feed" class="badge" hidden></span>
+  <span id="dataState" class="badge err" hidden></span>
+  <span id="push" class="badge" title="How this page gets updates">connecting…</span>
+  <span id="breadth" class="badge" hidden></span>
   <span id="updated" class="muted"></span>
   <div class="controls">
-    <label><input type="checkbox" id="rvolPopups" checked> RVOL spike pop-ups</label>
-    <label><input type="checkbox" id="confirmedOnly"> Pop up only confirmed breakouts</label>
-    <button id="testAlert" title="Show a sample pop-up to check sound and notifications">Test alert</button>
-    <button id="enableAlerts" class="primary">Enable sound &amp; desktop alerts</button>
+    <button id="alertBadge" class="badge-btn" title="Unacknowledged alerts: open the alert centre">🔔 <span id="alertBadgeText">no new alerts</span></button>
+    <button id="soundToggle" title="Sound stays off until you switch it on (browsers block autoplay)">🔇 Sound off</button>
+    <button id="alertSettingsBtn" title="Which alert types pop up, play a sound or notify">Alert settings</button>
+    <a class="btnlink" href="/settings" title="Strategies, thresholds, filters, alerts and refresh intervals">Settings</a>
+    <a class="btnlink" href="/backtests" title="Saved backtest runs (python backtest.py)">Backtests</a>
+    <button id="testAlert" title="Show a sample alert to check toasts, sound and notifications">Test alert</button>
+    <button id="enableAlerts" class="primary">Enable sound &amp; notifications</button>
   </div>
 </header>
 <div id="banner" class="banner" hidden></div>
@@ -113,7 +36,35 @@
     <div class="table-wrap" id="searchWrap" hidden><table id="searchTable"></table></div>
   </section>
 
-  <section class="grid">
+  <details class="panel" id="sectorPanel" open>
+    <summary>Sector strength <span id="sectorCount" class="count"></span>
+      <span class="muted">· sector return minus NIFTY 50 return, from the same start time to now</span></summary>
+    <div class="table-wrap" style="margin-top:10px"><table id="sectorTable"></table></div>
+  </details>
+
+  <section class="panel" id="scanPanel">
+    <div class="filters" id="rowFilters">
+      <select id="fSector" title="Sector"><option value="">All sectors</option></select>
+      <select id="fStrategy" title="Strategy"><option value="">Any strategy</option></select>
+      <label title="Minimum setup score">Setup ≥ <input id="fScore" type="number" min="0" max="100" step="5" style="width:4.5em"></label>
+      <label title="Minimum Day (cumulative) RVOL">Day RVOL ≥ <input id="fRvol" type="number" min="0" step="0.5" style="width:4.5em"></label>
+      <select id="fDir" title="Direction by the vote bias"><option value="">Any direction</option><option value="bullish">Bullish</option>
+        <option value="bearish">Bearish</option><option value="neutral">Neutral</option></select>
+      <button id="fReset" title="Clear the filters">Clear</button>
+      <span id="fInfo" class="muted"></span>
+    </div>
+    <nav class="tabs" role="tablist" id="tabs"></nav>
+    <div id="alertTabSlot"></div>
+    <p id="tabNote" class="muted" style="margin:0 0 8px"></p>
+    <div class="table-wrap" id="candWrap"><table id="candTable"></table></div>
+    <details id="candLogPanel" style="margin-top:10px">
+      <summary>Candidate changes <span id="candLogCount" class="count"></span>
+        <span class="muted">· qualified, weakening (stopped qualifying), requalified, removed (after the grace period)</span></summary>
+      <ul id="candLog"><li class="muted">No changes yet.</li></ul>
+    </details>
+  </section>
+
+  <section class="grid" id="votesGrid" hidden>
     <div class="panel bull">
       <h2><span class="dot bull"></span>Bullish <span id="bullCount" class="count"></span></h2>
       <div class="table-wrap"><table id="bullTable"></table></div>
@@ -124,9 +75,20 @@
     </div>
   </section>
 
-  <section class="panel">
-    <h2>Alert log <span class="count">(breakouts and ⚡ volume spikes, today, newest first)</span></h2>
-    <ul id="alertLog"><li class="muted">No alerts yet.</li></ul>
+  <section class="panel" id="alertCentre">
+    <h2>Alert centre <span id="alertCount" class="count"></span></h2>
+    <div class="afilters">
+      <span id="afSev"></span>
+      <select id="afCategory" title="Trading setups or feed / system alerts">
+        <option value="">Setups &amp; system</option><option value="setup">Trading setups</option><option value="system">Feed &amp; system</option></select>
+      <select id="afStrategy"><option value="">All strategies</option></select>
+      <input id="afSymbol" type="text" placeholder="Symbol" size="10" autocomplete="off" spellcheck="false">
+      <input id="afDay" type="date" title="Alert history for another day (saved in the database)">
+      <label><input type="checkbox" id="afUnacked"> Unacknowledged only</label>
+      <button id="ackShown" title="Acknowledge every alert matching these filters">Acknowledge shown</button>
+    </div>
+    <p class="muted" id="alertDisclaimer" style="margin:0 0 8px"></p>
+    <div class="table-wrap" style="max-height:520px; overflow-y:auto"><table id="alertTable"></table></div>
   </section>
 
   <details class="panel">
@@ -146,316 +108,26 @@
 </main>
 <p class="disclaimer">For learning only. Not investment advice. Signals are mechanical rules, not predictions.</p>
 
-<div id="modal" class="modal" hidden>
-  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <h2 id="modalTitle">Breakout</h2>
-    <div id="modalBody"></div>
-    <div class="modal-actions"><button id="modalClose" class="primary">Got it</button></div>
+<aside id="detail" class="drawer" hidden aria-labelledby="detailTitle">
+  <div class="drawer-head">
+    <h2 id="detailTitle">Stock</h2>
+    <span id="detailQuote"></span>
+    <button id="detailClose" class="tclose" title="Close (Esc)">×</button>
+  </div>
+  <div id="detailBody" class="drawer-body"></div>
+</aside>
+
+<div id="alertSettings" class="modal" hidden>
+  <div class="modal-box wide" role="dialog" aria-modal="true" aria-labelledby="asTitle">
+    <h2 id="asTitle">Alert settings</h2>
+    <div id="asBody"></div>
+    <div class="modal-actions"><button id="asClose" class="primary">Done</button></div>
   </div>
 </div>
 
-<script>
-(() => {
-  const POLL_MS = 3000;
-  const $ = (id) => document.getElementById(id);
-  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const num = (v, d = 2) => (v === null || v === undefined || Number.isNaN(v)) ? "—"
-    : Number(v).toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
-  const signed = (v, d = 2, suffix = "") => (v === null || v === undefined) ? "—"
-    : `<span class="${v > 0 ? "up" : v < 0 ? "down" : ""}">${v > 0 ? "+" : ""}${num(v, d)}${suffix}</span>`;
+<div id="toasts" class="toasts" aria-live="polite"></div>
 
-  let lastAlertId = null;
-  let audioCtx = null;
-  let unseen = 0;
-  const pending = [];
-  const store = {
-    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
-  };
-  $("confirmedOnly").checked = store.get("confirmedOnly") === "1";
-  $("rvolPopups").checked = store.get("rvolPopups") !== "0";
-  $("rvolPopups").addEventListener("change", (e) => store.set("rvolPopups", e.target.checked ? "1" : "0"));
-  $("confirmedOnly").addEventListener("change", (e) => store.set("confirmedOnly", e.target.checked ? "1" : "0"));
-
-  // ---------- tables ----------
-  const voteDot = (v) => `<span class="dot ${v || ""}" title="${v ? v + "ish vote" : "no vote"}"></span>`;
-  let SCORE_MAX = 8;
-  const scoreBar = (s) => `<span class="score">${Array.from({ length: SCORE_MAX }, (_, i) => `<i class="${i < s ? "on" : ""}"></i>`).join("")}</span>`;
-  const boTags = (r) => (r.breakouts || []).map((b) => {
-    const up = b.direction === "up";
-    return `<span class="tag ${up ? "bo-up" : "bo-down"}">${esc(b.label)} ${up ? "↑" : "↓"}</span>`;
-  }).join("");
-  const crossTag = (r) => r.macd_cross ? `<span class="tag ${r.macd_cross === "bullish" ? "bo-up" : "bo-down"}" title="MACD crossed its signal line in the last few bars">× ${r.macd_cross === "bullish" ? "↑" : "↓"}</span>` : "";
-
-  const SERIES_TIP = { BE: "Trade-for-trade: delivery only, no intraday", BZ: "Trade-for-trade: delivery only, no intraday",
-    SM: "SME platform (traded in lots)", ST: "SME, trade-for-trade", SZ: "SME, trade-for-trade" };
-  const seriesTag = (s) => s && s !== "EQ" ? `<span class="tag" title="${esc(SERIES_TIP[s] || "Not intraday-tradable like EQ")}">${esc(s)}</span>` : "";
-  const barRvolCell = (r) => {
-    if (r.bar_rvol === null || r.bar_rvol === undefined) return '<span class="muted">—</span>';
-    const t = (r.bar_time || "").slice(11, 16);
-    const tip = `${r.bar_rvol_class} · ${t} bar: ${num(r.bar_volume, 0)} vs avg ${num(r.bar_avg_volume, 0)} (bar ${num(r.bar_change_pct)}%)`;
-    return `<span class="rv rv-${(r.bar_rvol_class || "").toLowerCase()}" title="${esc(tip)}">${r.bar_spike ? "⚡ " : ""}${num(r.bar_rvol, 2)}×</span>`;
-  };
-  let EMA_PERIODS = [9, 20, 50, 200];
-  const emaCell = (r) => {
-    const vals = EMA_PERIODS.map((p) => r[`ema${p}`]);
-    if (vals.every((v) => v === null || v === undefined)) return '<span class="muted">—</span>';
-    const dots = EMA_PERIODS.map((p, i) => {
-      const v = vals[i];
-      const side = v === null || v === undefined ? "" : r.ltp > v ? "bull" : r.ltp < v ? "bear" : "";
-      return `<span class="dot ${side}" title="EMA${p} ${num(v)} (price ${side === "bull" ? "above" : side === "bear" ? "below" : "n/a"})"></span>`;
-    }).join("");
-    const stack = r.ema_stack === "bullish" ? '<span class="tag bo-up" title="Price > EMA9 > EMA20 > EMA50 > EMA200 (bullish EMA vote)">stack ↑</span>'
-      : r.ema_stack === "bearish" ? '<span class="tag bo-down" title="Price < EMA9 < EMA20 < EMA50 < EMA200 (bearish EMA vote)">stack ↓</span>' : "";
-    const cross = r.ema_cross ? `<span class="tag ${r.ema_cross === "bullish" ? "bo-up" : "bo-down"}" title="EMA9 crossed EMA20 in the last few candles">9×20 ${r.ema_cross === "bullish" ? "↑" : "↓"}</span>` : "";
-    const tip = EMA_PERIODS.map((p, i) => `EMA${p} ${num(vals[i])}`).join(" · ");
-    return `<span title="${esc(tip)}">${dots}</span>${stack}${cross}`;
-  };
-  let DAILY_EMA_PERIODS = [9, 20, 50, 200];
-  let DAILY_CROSS = [50, 200];
-  const dailyEmaCell = (r) => {
-    const vals = DAILY_EMA_PERIODS.map((p) => r[`dema${p}`]);
-    if (vals.every((v) => v === null || v === undefined)) return '<span class="muted">—</span>';
-    const dots = DAILY_EMA_PERIODS.map((p, i) => {
-      const v = vals[i];
-      const side = v === null || v === undefined ? "" : r.ltp > v ? "bull" : r.ltp < v ? "bear" : "";
-      return `<span class="dot ${side}" title="Daily EMA${p} ${num(v)} (yesterday ${num(r[`dema${p}_prev`])})"></span>`;
-    }).join("");
-    const stack = r.dema_stack === "bullish" ? '<span class="tag bo-up" title="Price > daily EMA9 > EMA20 > EMA50 > EMA200">stack ↑</span>'
-      : r.dema_stack === "bearish" ? '<span class="tag bo-down" title="Price < daily EMA9 < EMA20 < EMA50 < EMA200">stack ↓</span>' : "";
-    const cross = r.dema_cross ? `<span class="tag ${r.dema_cross === "bullish" ? "bo-up" : "bo-down"}" title="${r.dema_cross === "bullish" ? "Golden" : "Death"} cross: daily EMA${DAILY_CROSS[0]} crossed EMA${DAILY_CROSS[1]} in the last few sessions">${DAILY_CROSS[0]}×${DAILY_CROSS[1]} ${r.dema_cross === "bullish" ? "↑" : "↓"}</span>` : "";
-    const tip = DAILY_EMA_PERIODS.map((p, i) => `Daily EMA${p} ${num(vals[i])}`).join(" · ");
-    return `<span title="${esc(tip)}">${dots}</span>${stack}${cross}`;
-  };
-  const orCell = (r) => {
-    if (!r.or_complete) return '<span class="muted">forming</span>';
-    const pos = r.votes?.orb === "bull" ? "above" : r.votes?.orb === "bear" ? "below" : "inside";
-    return `${voteDot(r.votes?.orb)}${pos}`;
-  };
-  const COLS = [
-    ["#", (r) => r.rank ?? ""],
-    ["Symbol", (r) => `<strong>${esc(r.symbol)}</strong>${r.top ? '<span class="tag top">TOP</span>' : ""}${seriesTag(r.series)}`],
-    ["Score", (r) => `${r.score}/${SCORE_MAX}${scoreBar(r.score)}`],
-    ["LTP", (r) => num(r.ltp)],
-    ["Chg %", (r) => signed(r.chg_pct, 2, "%")],
-    ["Breakouts", (r) => boTags(r) || '<span class="muted">—</span>'],
-    ["RS", (r) => signed(r.rs, 2)],
-    ["VWAP", (r) => `${voteDot(r.votes?.vwap)}${num(r.vwap)}`],
-    ["EMA 5-min", emaCell],
-    ["EMA daily", dailyEmaCell],
-    ["MACD hist", (r) => `${voteDot(r.votes?.macd)}${signed(r.macd_hist, 2)}${crossTag(r)}`],
-    ["+DI / −DI", (r) => `${voteDot(r.votes?.dmi)}${num(r.plus_di, 1)} / ${num(r.minus_di, 1)}`],
-    ["ADX", (r) => `<span class="${r.trending ? "" : "muted"}">${num(r.adx, 1)}</span>`],
-    ["Day RVOL", (r) => `<span class="${r.active ? "" : "muted"}">${num(r.rvol, 2)}×</span>`],
-    ["Bar RVOL", barRvolCell],
-    ["OR", orCell],
-  ];
-  const NEUTRAL_COLS = [...COLS.slice(1, 5), ...COLS.slice(6), ["ATR %", (r) => num(r.atr_pct, 1)], ["Why here", (r) => r.passes_filters
-    ? `<span class="muted">mixed: ${r.bull_votes} bull / ${r.bear_votes} bear</span>`
-    : `<span class="muted">${esc(r.filter_reasons.join("; "))}</span>`]];
-
-  function renderTable(el, rows, cols, emptyMsg) {
-    if (!rows.length) { el.innerHTML = `<tr><td class="empty" colspan="${cols.length}">${emptyMsg}</td></tr>`; return; }
-    const head = `<thead><tr>${cols.map(([h]) => `<th>${h}</th>`).join("")}</tr></thead>`;
-    const body = rows.map((r) => {
-      const tip = `OR ${num(r.or_high)} / ${num(r.or_low)} · PDH ${num(r.pdh)} · PDL ${num(r.pdl)} · Gap ${num(r.gap_pct)}% · 52W ${num(r.w52_low)}–${num(r.w52_high)} · ATR ${num(r.atr_pct, 1)}% · Turnover ₹${num(r.avg_turnover_cr, 0)} cr · last bar ${r.last_bar}`;
-      return `<tr class="${r.top ? "top" : ""}" title="${esc(tip)}">${cols.map(([, f]) => `<td>${f(r)}</td>`).join("")}</tr>`;
-    }).join("");
-    el.innerHTML = head + `<tbody>${body}</tbody>`;
-  }
-
-  // ---------- alerts ----------
-  const checksHtml = (a) => `<div class="checks">${Object.entries(a.confirmations).map(([k, ok]) => `<span class="${ok ? "ok" : "no"}">${ok ? "✓" : "✗"} ${k}</span>`).join("")}</div>`;
-  const isRvol = (a) => a.kind === "rvol";
-  const alertTitle = (a) => isRvol(a)
-    ? `⚡ ${esc(a.symbol)}${seriesTag(a.series)} — volume spike ${num(a.bar_rvol, 1)}× (${esc((a.bar_time || "").slice(11, 16))} bar, ${a.direction === "up" ? "green" : "red"})`
-    : `${a.direction === "up" ? "▲" : "▼"} ${esc(a.symbol)} — ${a.direction === "up" ? "breakout above" : "breakdown below"} ${esc(a.level_name)}`;
-  const alertCard = (a) => `
-    <div class="alert-card ${a.direction === "down" ? "down" : ""} ${isRvol(a) ? "rvol" : ""}">
-      <div class="title">${alertTitle(a)}</div>
-      <div>${isRvol(a)
-        ? `Bar volume <strong>${num(a.bar_volume, 0)}</strong> vs avg ${num(a.bar_avg_volume, 0)} of the previous bars · bar ${signed(a.bar_change_pct, 2, "%")} · price ${num(a.price)}`
-        : `Price <strong>${num(a.price)}</strong> vs level ${num(a.level)}`} · ${esc(a.time)} ·
-        <strong class="${a.confirmed ? (a.direction === "up" ? "up" : "down") : "muted"}">${a.confirmed ? "confirmed" : "unconfirmed"} (${a.confirmed_count}/5)</strong></div>
-      ${checksHtml(a)}
-    </div>`;
-
-  function showModal(alerts) {
-    pending.unshift(...alerts);
-    $("modalTitle").textContent = pending.length > 1 ? `${pending.length} new alerts`
-      : isRvol(pending[0]) ? "Volume spike" : "New breakout";
-    $("modalBody").innerHTML = pending.map(alertCard).join("");
-    $("modal").hidden = false;
-    $("modalClose").focus();
-  }
-  function closeModal() { pending.length = 0; $("modal").hidden = true; }
-  $("modalClose").addEventListener("click", closeModal);
-  $("modal").addEventListener("click", (e) => { if (e.target === $("modal")) closeModal(); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("modal").hidden) closeModal(); });
-
-  function beep(up) {
-    if (!audioCtx) return;
-    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-    o.frequency.value = up ? 880 : 440; o.type = "sine";
-    g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.25, audioCtx.currentTime + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.35);
-    o.connect(g).connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.4);
-  }
-  $("enableAlerts").addEventListener("click", async () => {
-    try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); await audioCtx.resume(); beep(true); } catch {}
-    if ("Notification" in window && Notification.permission === "default") { try { await Notification.requestPermission(); } catch {} }
-    $("enableAlerts").textContent = "Alerts on";
-    $("enableAlerts").classList.remove("primary");
-  });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { unseen = 0; document.title = "Intraday Screener"; } });
-
-  let latestAlerts = [];
-  const SAMPLE = { id: 0, time: "--:--:--", symbol: "SAMPLE", level_name: "OR High", direction: "up", level: 100, price: 100.6,
-    confirmed: true, confirmed_count: 4, confirmations: { MACD: true, DMI: true, ADX: true, RVOL: false, VWAP: true } };
-  function popAlerts(toPop) {
-    showModal(toPop.slice().reverse());
-    beep(toPop[toPop.length - 1].direction === "up");
-    if (document.hidden) {
-      unseen += toPop.length;
-      document.title = `(${unseen}) Breakout — Intraday Screener`;
-      if ("Notification" in window && Notification.permission === "granted") {
-        toPop.slice(-3).forEach((a) => { try {
-          const title = isRvol(a) ? `⚡ ${a.symbol} volume ${num(a.bar_rvol, 1)}×` : `${a.direction === "up" ? "▲" : "▼"} ${a.symbol} ${a.level_name}`;
-          const body = isRvol(a) ? `${(a.bar_time || "").slice(11, 16)} bar ${num(a.bar_change_pct)}% · price ${num(a.price)}` : `${num(a.price)} vs ${num(a.level)} · ${a.confirmed ? "confirmed" : "unconfirmed"} ${a.confirmed_count}/5`;
-          new Notification(title, { body, tag: `al-${a.id}` });
-        } catch {} });
-      }
-    }
-  }
-  function handleAlerts(alerts) {
-    latestAlerts = alerts;
-    const maxId = alerts.reduce((m, a) => Math.max(m, a.id), 0);
-    if (lastAlertId === null) { lastAlertId = maxId; return; }          // don't replay history on page load
-    const fresh = alerts.filter((a) => a.id > lastAlertId).sort((a, b) => a.id - b.id);
-    lastAlertId = Math.max(lastAlertId, maxId);
-    const toPop = fresh.filter((a) => isRvol(a)
-      ? $("rvolPopups").checked
-      : (!$("confirmedOnly").checked || a.confirmed));
-    if (toPop.length) popAlerts(toPop);
-  }
-  function testAlert(kind) {
-    const pick = latestAlerts.find((x) => !kind || x.kind === kind) || latestAlerts[0];
-    const a = pick ? { ...pick, time: pick.time + " (replay)" } : SAMPLE;
-    popAlerts([a]);
-    if ("Notification" in window && Notification.permission === "granted") {
-      try { new Notification(`Test: ${a.symbol} ${a.level_name}`, { body: "Desktop notifications are working." }); } catch {}
-    }
-  }
-  $("testAlert").addEventListener("click", () => testAlert());
-
-  function renderLog(alerts) {
-    $("alertLog").innerHTML = alerts.length ? alerts.map((a) => `
-      <li><span class="muted">${esc(a.time)}</span>
-        <strong class="${a.direction === "up" ? "up" : "down"}">${isRvol(a) ? "⚡" : a.direction === "up" ? "▲" : "▼"} ${esc(a.symbol)}</strong>${seriesTag(a.series)}
-        <span>${isRvol(a)
-          ? `volume spike <strong>${num(a.bar_rvol, 1)}×</strong> on the ${esc((a.bar_time || "").slice(11, 16))} bar (${num(a.bar_change_pct)}%)`
-          : `${esc(a.level_name)} ${num(a.level)} → ${num(a.price)}`}</span>
-        <span class="tag ${a.confirmed ? (a.direction === "up" ? "bo-up" : "bo-down") : ""}">${a.confirmed ? "confirmed" : "unconfirmed"} ${a.confirmed_count}/5</span></li>`).join("")
-      : '<li class="muted">No alerts yet.</li>';
-  }
-
-  function renderLegend(c) {
-    $("legend").innerHTML = `
-      <p><strong>Bias.</strong> ${c.n_votes} directional votes (dots): price vs <em>VWAP</em>, <em>MACD</em> line vs signal, <em>+DI vs −DI</em>, <em>RS</em> (stock % change minus benchmark, ±${c.rs_min}%), price vs the <em>${c.or_minutes}-min opening range</em>${c.ema_vote ? ", the <em>5-min EMA stack</em>" : ""}${c.daily_ema_vote ? ", the <em>daily EMA stack</em>" : ""}${c.ema_vote || c.daily_ema_vote ? " (stack ↑ bullish, stack ↓ bearish, mixed = no vote)" : ""}. Bullish/Bearish needs at least ${c.min_votes} of ${c.n_votes} on one side, and more than the other side.</p>
-      <p><strong>Score /${c.score_max}.</strong> Directional votes plus two strength checks: <em>ADX ≥ ${c.adx_min}</em> (a real trend) and <em>RVOL ≥ ${c.rvol_min}×</em> (unusual participation). Top ${c.top_n} per side are highlighted.</p>
-      <p><strong>MACD (${c.macd.join(", ")}) on ${c.interval}-min candles.</strong> Histogram > 0 means momentum is rising. “× ↑/↓” marks a fresh crossover of the signal line.</p>
-      <p><strong>Directional Movement Index (${c.dmi_period}).</strong> +DI above −DI means up-moves dominate. ADX measures how strong the trend is regardless of direction: below 20 usually means choppy.</p>
-      <p><strong>EMA 5-min ${c.ema_periods.join(" · ")}.</strong> Exponential moving averages of the ${c.interval}-min closes. Each dot is green if price is above that EMA, red if below. “stack ↑” means price &gt; EMA${c.ema_periods.join(" &gt; EMA")} (a clean uptrend), “stack ↓” the reverse. “${c.ema_cross[0]}×${c.ema_cross[1]}” marks a fresh EMA${c.ema_cross[0]}/EMA${c.ema_cross[1]} crossover. ${c.ema_vote ? "The stack is one of the directional votes; the individual dots and the 9×20 tag are for context." : "Shown for context only; EMAs are not part of the score."} An EMA shows “—” until there are at least that many candles.</p>
-      <p><strong>EMA daily ${c.daily_ema_periods.join(" · ")}.</strong> The same idea on <em>daily</em> closes. Today's value moves with the live price, as on a daily chart: yesterday's EMA + α × (price − yesterday's EMA). Dots, “stack ↑/↓” as above; “${c.daily_ema_cross[0]}×${c.daily_ema_cross[1]} ↑” is a golden cross and “↓” a death cross within the last ${c.daily_ema_cross_days} sessions. ${c.daily_ema_vote ? "The daily stack is also a directional vote." : "Context only, not part of the score."} Available for every stock, because daily history is loaded for all of them.</p>
-      <p><strong>Day RVOL.</strong> Today's volume so far divided by the average of the previous ${c.day_rvol_sessions} sessions up to the same time of day. Feeds the score.</p>
-      <p><strong>Bar RVOL (⚡ alerts).</strong> Volume of the latest <em>completed</em> ${c.rvol_interval}-min candle divided by the average volume of the ${c.rvol_lookback} completed candles before it (method from the reference intraday_scanner project). Bands: LOW &lt; 0.8, NORMAL &lt; 1.2, HIGH &lt; 2.0, VERY HIGH ≥ 2.0. An alert fires when it is above <strong>${c.rvol_threshold}×</strong> on bars from ${esc(c.rvol_from)}, at most once per stock every ${c.rvol_cooldown} min. The bar's colour (green/red) gives the direction. Every NSE equity share is screened; BE/BZ (trade-for-trade) and SM/ST/SZ (SME) stocks carry a tag and get live data and spike alerts only.</p>
-      <p><strong>Filters.</strong> Stocks with 20-day turnover below ₹${c.min_turnover_cr} cr or ATR below ${c.min_atr_pct}% go to “Neutral &amp; filtered”. Too illiquid or too quiet to trade intraday.</p>
-      <p><strong>Breakouts.</strong> Fire once per stock per level per day when price crosses the opening-range high/low, previous-day high/low (PDH/PDL) or 52-week high/low by more than ${c.buffer_pct}%. “Confirmed” = at least ${c.min_confirmations} of MACD, DMI, ADX, RVOL and VWAP agree.</p>
-      <p><strong>Live feed / all-NSE mode.</strong> Every stock streams price, day volume and the exchange's own VWAP over Dhan's WebSocket, and 1-min candles are built from those ticks, so ⚡ volume-spike alerts cover the whole universe (spike candle must trade at least ₹${c.rvol_min_value_lakh} lakh; Bar RVOL starts 20 candles after the feed connects). The full MACD/DMI/ADX scan runs on the most liquid stocks that pass the filters; ${c.breakouts_need_filters ? "breakout pop-ups are limited to those stocks" : "breakouts fire for every stock"}. Use the search box to find any stock.</p>
-      <p><strong>Tip.</strong> Hover a row for PDH/PDL, gap, 52-week range and turnover. Many breakouts fail; a confirmed one only means the indicators agree at that moment.</p>`;
-  }
-
-  // ---------- search ----------
-  const SEARCH_COLS = [["Bias", (r) => `<span class="tag bias-${r.bias}">${esc(r.bias)}</span>`], ...NEUTRAL_COLS];
-  let searchTimer = null, searchSeq = 0;
-  async function refreshSearch() {
-    const q = $("search").value.trim();
-    if (!q) { $("searchWrap").hidden = true; return; }
-    const seq = ++searchSeq;
-    try {
-      const rows = await (await fetch(`/api/search?q=${encodeURIComponent(q)}`, { cache: "no-store" })).json();
-      if (seq !== searchSeq) return;
-      $("searchWrap").hidden = false;
-      renderTable($("searchTable"), rows, SEARCH_COLS, `No stock matching “${esc(q)}” in the scan yet.`);
-    } catch {}
-  }
-  $("search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(refreshSearch, 250); });
-
-  // ---------- main loop ----------
-  let legendDone = false;
-  async function poll() {
-    let s;
-    try {
-      const res = await fetch("/api/state", { cache: "no-store" });
-      s = await res.json();
-    } catch (e) {
-      $("banner").hidden = false; $("banner").className = "banner error";
-      $("banner").textContent = "Cannot reach the screener server. Is app.py still running?";
-      return;
-    }
-    const demo = /DEMO/.test(s.source);
-    $("source").textContent = s.source; $("source").className = `badge ${demo ? "demo" : "live"}`;
-    $("phase").textContent = `market ${s.market_phase} · ${s.now.slice(11, 19)}`;
-    const b = s.benchmark;
-    $("bench").innerHTML = b.chg_pct === null ? "benchmark —"
-      : `${esc(b.source === b.name ? b.name : "Watchlist median")} ${signed(b.chg_pct, 2, "%")}`;
-    const live = s.mode === "live";
-    const f = s.feed, h = s.history;
-    $("updated").textContent = `prices ${s.last_ltp_update || "—"} · candles ${s.last_candle_update || "—"} · ${num(s.symbols_resolved, 0)}/${num(s.symbols_total, 0)} symbols · history: ${s.storage || "off"}`;
-    $("feed").hidden = !live;
-    if (live) {
-      const state = f.fatal ? "stopped" : f.connected ? "live" : "reconnecting";
-      $("feed").className = `badge ${f.fatal ? "err" : f.connected ? "live" : "warn"}`;
-      $("feed").textContent = `WebSocket ${state} · ${num(f.with_data, 0)}/${num(f.instruments, 0)} streaming${f.packets_per_sec !== null ? ` · ${num(f.packets_per_sec, 0)} pkt/s` : ""}`;
-      $("universeInfo").textContent = `${s.universe === "nse" ? "All NSE equity shares" : "Watchlist"}: ${num(s.counts.rows, 0)} with live data · daily history ${num(h.daily_loaded, 0)}/${num(h.daily_total, 0)} · full indicator scan on ${num(h.deep_scanned, 0)} liquid stocks (of ${num(h.deep_candidates, 0)} passing the filters, max ${num(h.deep_max, 0)})`;
-    } else {
-      $("universeInfo").textContent = `Watchlist: ${num(s.counts.rows, 0)} stocks`;
-    }
-
-    let banner = "", cls = "banner";
-    if (s.auth_error) { banner = `Dhan rejected the credentials: ${s.auth_error}. Generate a new access token (web.dhan.co → My Profile → Access DhanHQ APIs), update .env and restart.`; cls += " error"; }
-    else if (live && !f.connected) banner = `Live feed disconnected${f.last_error ? ` (${f.last_error})` : ""} — reconnecting automatically…`;
-    else if (!s.ready) banner = live ? "Connecting to the live feed…" : "Loading candles and computing indicators… (first scan takes ~30 s for 50 stocks)";
-    else if (live && h.daily_loaded < h.daily_total) banner = `Loading daily history ${num(h.daily_loaded, 0)}/${num(h.daily_total, 0)} (first run ≈ ${Math.ceil((h.daily_total - h.daily_loaded) / 240)} min, cached afterwards). Stocks appear in the bullish/bearish lists as their history and indicators load.`;
-    else if (demo) banner = "Demo mode: prices are simulated random walks on a fast clock, not real market data.";
-    $("banner").hidden = !banner; $("banner").className = cls; $("banner").textContent = banner;
-
-    const shown = (n, total) => total > n ? `(top ${num(n, 0)} of ${num(total, 0)})` : `(${num(total, 0)})`;
-    $("bullCount").textContent = shown(s.bullish.length, s.counts.bullish);
-    $("bearCount").textContent = shown(s.bearish.length, s.counts.bearish);
-    $("neutralCount").textContent = shown(s.neutral.length, s.counts.neutral);
-    refreshSearch();
-    renderTable($("bullTable"), s.bullish, COLS, s.ready ? "No stock meets the bullish rules right now." : "Loading…");
-    renderTable($("bearTable"), s.bearish, COLS, s.ready ? "No stock meets the bearish rules right now." : "Loading…");
-    renderTable($("neutralTable"), s.neutral, NEUTRAL_COLS, "None.");
-    renderLog(s.alerts);
-    handleAlerts(s.alerts);
-    if (!legendDone && s.config) { renderLegend(s.config); legendDone = true; }
-    if (s.config && s.config.ema_periods) EMA_PERIODS = s.config.ema_periods;
-    if (s.config && s.config.score_max) SCORE_MAX = s.config.score_max;
-    if (s.config && s.config.daily_ema_periods) { DAILY_EMA_PERIODS = s.config.daily_ema_periods; DAILY_CROSS = s.config.daily_ema_cross; }
-
-    $("errorsPanel").hidden = !s.errors.length;
-    $("errorCount").textContent = `(${s.errors.length})`;
-    $("errorList").innerHTML = s.errors.map((e) => `<li>${esc(e.time)} ${esc(e.message)}${e.count > 1 ? ` ×${e.count}` : ""}</li>`).join("");
-  }
-  poll().then(() => {
-    if (location.hash === "#test-alert") testAlert();
-    if (location.hash === "#test-rvol") testAlert("rvol");
-  });
-  setInterval(poll, POLL_MS);
-})();
-</script>
+<script src="/static/js/chart.js"></script>
+<script src="/static/js/app.js"></script>
 </body>
 </html>

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screener Settings</title>
+<link rel="stylesheet" href="/static/css/app.css">
+<style>
+  .sgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .sgrid td { padding: 6px 6px; border-bottom: 1px solid var(--border); text-align: left; white-space: normal; vertical-align: middle; }
+  .sgrid td:first-child { width: 42%; }
+  .sgrid tr.changed td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  .sgrid tr.pending td { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+  .sgrid input[type=number], .sgrid select { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); width: 9em; }
+  .sgrid .multi label { margin-right: 10px; white-space: nowrap; }
+  .sgrid .err { color: var(--bear); font-size: 12px; }
+  .sgrid .help { color: var(--muted); font-size: 11.5px; }
+  .savebar { position: sticky; top: 0; z-index: 5; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    background: var(--panel); border-bottom: 1px solid var(--border); padding: 10px 16px; }
+  .savebar h1 { font-size: 17px; margin: 0 8px 0 0; }
+  #result { font-size: 13px; }
+  .tag.restart { background: var(--warn-bg); color: var(--warn); }
+</style>
+</head>
+<body>
+<div class="savebar">
+  <h1>Settings</h1>
+  <a class="btnlink" href="/">← Dashboard</a>
+  <input id="find" type="search" placeholder="Find a setting" autocomplete="off" style="font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+  <button id="save" class="primary" disabled>Save changes</button>
+  <button id="discard" disabled>Discard</button>
+  <span id="result" class="muted"></span>
+</div>
+<main>
+  <section class="panel" id="notes"></section>
+  <div id="groups"></div>
+</main>
+<p class="disclaimer">For learning only. Not investment advice. Every threshold is a starting point to test, not a proven rule.</p>
+<script src="/static/js/settings.js"></script>
+</body>
+</html>

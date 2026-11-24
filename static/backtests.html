@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backtest Results</title>
+<link rel="stylesheet" href="/static/css/app.css">
+<style>
+  .bar { position: sticky; top: 0; z-index: 5; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    background: var(--panel); border-bottom: 1px solid var(--border); padding: 10px 16px; }
+  .bar h1 { font-size: 17px; margin: 0 8px 0 0; }
+  .bar select { max-width: calc(100vw - 32px); }
+  .bar select { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  .cmp td, .cmp th { text-align: right; }
+  .cmp td:nth-child(-n+2), .cmp th:nth-child(-n+2) { text-align: left; }
+  tr.warnrow td { background: color-mix(in srgb, var(--warn) 10%, transparent); }
+  .eq { width: 100%; display: block; }
+  .eq text { font-size: 10px; fill: var(--muted); }
+  .eq .line { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+  .eq .zero { stroke: var(--border); } .eq .split { stroke: var(--warn); stroke-dasharray: 4 3; }
+  .small { font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Backtests</h1>
+  <a class="btnlink" href="/">← Dashboard</a>
+  <select id="run" title="Saved runs (newest first)"></select>
+  <select id="variant" title="Variant"></select>
+  <select id="strategy" title="Strategy"></select>
+  <span id="meta" class="muted"></span>
+</div>
+<main>
+  <section class="panel" id="intro"></section>
+  <section class="panel"><h2>Variants, in-sample vs out-of-sample</h2>
+    <p class="muted small">Choose settings on the in-sample sessions, then judge them only by the out-of-sample ones.
+      A variant that is much better in-sample than out-of-sample (highlighted) was probably fitted to noise.</p>
+    <div class="table-wrap"><table id="cmp" class="cmp"></table></div></section>
+  <section class="panel"><h2 id="eqTitle">Equity curve</h2><div id="eq"></div></section>
+  <section class="panel"><h2>Breakdowns</h2><div class="grid" id="breakdowns"></div></section>
+  <section class="panel"><h2>Trades <span id="tradeCount" class="count"></span></h2>
+    <div class="table-wrap" style="max-height:560px; overflow-y:auto"><table id="trades"></table></div></section>
+</main>
+<p class="disclaimer">Backtests are simulations on past data with your assumptions (costs, slippage, exits). They are not
+  predictions or advice, and the small samples here mean wide uncertainty.</p>
+<script src="/static/js/backtests.js"></script>
+</body>
+</html>

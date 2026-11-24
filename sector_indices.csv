@@ -1,0 +1,23 @@
+version,checked,nse_sector,benchmark,index_name,dhan_security_id,note
+1,2026-11-24,Automobile and Auto Components,index,NIFTY AUTO,14,NSE sector index
+1,2026-11-24,Consumer Durables,index,NIFTY CONSR DURBL,466,NSE sector index
+1,2026-11-24,Fast Moving Consumer Goods,index,NIFTY FMCG,28,NSE sector index
+1,2026-11-24,Financial Services,index,NIFTY FIN SERVICE,27,NSE sector index (FINNIFTY)
+1,2026-11-24,Healthcare,index,NIFTY HEALTHCARE,447,NSE sector index
+1,2026-11-24,Information Technology,index,NIFTY IT,29,NSE sector index
+1,2026-11-24,Media Entertainment & Publication,index,NIFTY MEDIA,30,NSE sector index
+1,2026-11-24,Metals & Mining,index,NIFTY METAL,31,NSE sector index
+1,2026-11-24,Oil Gas & Consumable Fuels,index,NIFTY OIL AND GAS,470,NSE sector index (coal miners are in the sector but not the index)
+1,2026-11-24,Realty,index,NIFTY REALTY,34,NSE sector index
+1,2026-11-24,Capital Goods,composite,,,no NSE sector index; median of the sector's liquid stocks
+1,2026-11-24,Chemicals,composite,,,no NSE sector index in Dhan's list; median of the sector's liquid stocks
+1,2026-11-24,Construction,composite,,,no NSE sector index; NIFTY INFRA is broader (telecom/power/cement) so not used
+1,2026-11-24,Construction Materials,composite,,,no NSE sector index; median of the sector's liquid stocks
+1,2026-11-24,Consumer Services,composite,,,no NSE sector index; NIFTY CONSUMPTION is broader so not used
+1,2026-11-24,Diversified,composite,,,no NSE sector index; median of the sector's liquid stocks
+1,2026-11-24,Forest Materials,composite,,,no NSE sector index; median of the sector's liquid stocks
+1,2026-11-24,Power,composite,,,no NSE sector index; NIFTY ENERGY mixes oil & gas and power so not used
+1,2026-11-24,Services,composite,,,no NSE sector index; NIFTY SERV SECTOR includes IT and banks so not used
+1,2026-11-24,Telecommunication,composite,,,no NSE sector index; median of the sector's liquid stocks
+1,2026-11-24,Textiles,composite,,,no NSE sector index; median of the sector's liquid stocks
+1,2026-11-24,Utilities,composite,,,no NSE sector index; median of the sector's liquid stocks

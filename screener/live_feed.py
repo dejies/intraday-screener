@@ -232,6 +232,20 @@ class DhanLiveFeed:
             except Exception:
                 pass
 
+    def force_reconnect(self, reason: str) -> bool:
+        """Drop the current connection so the run loop reconnects (used when the socket is open but
+        silent: no packets while the market is open)."""
+        ws = self._ws
+        if ws is None or self._stop.is_set():
+            return False
+        self.last_error = reason
+        log.warning("Forcing a live-feed reconnect: %s", reason)
+        try:
+            ws.close()
+        except Exception:
+            pass
+        return True
+
     def _run(self) -> None:
         import websocket   # websocket-client
 
@@ -332,6 +346,7 @@ class DhanLiveFeed:
             "connected_since": self.connected_since.strftime("%H:%M:%S") if self.connected_since else None,
             "instruments": len(self.instruments), "with_data": len(self._state), "packets": self.packets,
             "packets_per_sec": round(rate, 1), "reconnects": self.reconnects, "last_error": self.last_error,
+            "last_packet": self.last_packet_at.strftime("%H:%M:%S") if getattr(self, "last_packet_at", None) else None,
         }
 
 
@@ -349,6 +364,7 @@ class DemoFeed:
         self.connected = False
         self.connected_since: datetime | None = None
         self.fatal = None
+        self.last_packet_at: datetime | None = None
         self._arr: dict[tuple, dict] = {}
 
     def start(self, instruments) -> None:
@@ -377,6 +393,7 @@ class DemoFeed:
         self.connected = False
 
     def snapshot(self) -> dict[tuple, dict]:
+        self.last_packet_at = self.client.now()
         now = np.datetime64(self.client.now())
         out = {}
         for key, a in self._arr.items():
@@ -414,8 +431,12 @@ class DemoFeed:
             lo = max(lo, hi - last)
         return ts[lo:hi], o[lo:hi], c[lo:hi], v[lo:hi]
 
+    def force_reconnect(self, reason: str) -> bool:
+        return False                        # the simulated feed never goes silent
+
     def status(self) -> dict:
         return {"kind": "demo", "connected": self.connected, "fatal": None,
                 "connected_since": self.connected_since.strftime("%H:%M:%S") if self.connected_since else None,
                 "instruments": len(self.instruments), "with_data": len(self._arr), "packets": 0,
-                "packets_per_sec": None, "reconnects": 0, "last_error": None}
+                "packets_per_sec": None, "reconnects": 0, "last_error": None,
+                "last_packet": self.last_packet_at.strftime("%H:%M:%S") if getattr(self, "last_packet_at", None) else None}

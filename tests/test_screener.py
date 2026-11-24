@@ -164,7 +164,7 @@ def test_dhan_error_flags():
 
 # ----------------------------------------------------------- end-to-end (demo)
 def test_engine_cycle_on_demo_data(cfg):
-    symbols = load_watchlist(config.WATCHLIST_FILE)[:12]
+    symbols = load_watchlist(config.NIFTY50_FILE)[:12]
     client = DemoClient(symbols, speed=1, start="11:00", benchmark=cfg.BENCHMARK)
     eng = ScreenerEngine(client, symbols, cfg)
     eng.bootstrap()
@@ -184,7 +184,7 @@ def test_engine_cycle_on_demo_data(cfg):
 def test_preopen_uses_today_session_and_no_or_alerts_before_0930(cfg):
     """Regression: before today's first candle, levels must not come from yesterday's session."""
     from datetime import timedelta
-    symbols = load_watchlist(config.WATCHLIST_FILE)[:15]
+    symbols = load_watchlist(config.NIFTY50_FILE)[:15]
     client = DemoClient(symbols, speed=1, start="09:05", benchmark=cfg.BENCHMARK)
     clock = {"t": datetime.combine(client.day, datetime.min.time()).replace(hour=9, minute=5)}
     client.now = lambda: clock["t"]
@@ -288,7 +288,7 @@ def test_cache_treats_no_data_as_empty_and_remembers_it():
 
 
 def test_alerts_saved_and_restored_after_restart(cfg):
-    symbols = load_watchlist(config.WATCHLIST_FILE)[:12]
+    symbols = load_watchlist(config.NIFTY50_FILE)[:12]
     store = MarketStore(":memory:")
     demo = DemoClient(symbols, speed=1, start="09:05", benchmark=cfg.BENCHMARK)
     clock = {"t": datetime.combine(demo.day, dtime(9, 5))}
@@ -301,15 +301,20 @@ def test_alerts_saved_and_restored_after_restart(cfg):
         clock["t"] += timedelta(minutes=2)
         eng.refresh_candles()
         eng.refresh_ltp()
-    saved = store.alerts_for_day(demo.day)
+    every = store.alerts_for_day(demo.day)                          # breakouts, spikes, strategy, indicator alerts
+    saved = [a for a in every if a["kind"] in ("breakout", "rvol")]
     assert saved and len(saved) == len(eng.tracker.alerts)
     assert {a["id"] for a in saved} == {a["id"] for a in eng.tracker.alerts}
+    assert {a["id"] for a in every} == {a["id"] for a in eng.alerts.alerts}   # the alert centre has them all
 
     restarted = ScreenerEngine(client, symbols, cfg, store=store)   # same day, new process
     restarted.bootstrap()
     restarted.refresh_candles()
     restarted.refresh_ltp()
     assert len(restarted.tracker.alerts) == len(saved)              # history restored, nothing re-fired
+    again = store.alerts_for_day(demo.day)
+    assert {a["id"] for a in every} <= {a["id"] for a in again}
+    assert len({a["alert_key"] for a in again}) == len(again)        # no duplicate events after the restart
     sym = saved[0]["symbol"]
     assert saved[0]["level_name"] in [b["label"] for b in restarted.tracker.fired_for(sym)]
     assert restarted.tracker._next_id > max(a["id"] for a in saved)
@@ -454,7 +459,7 @@ def test_non_eq_series_are_filtered_out_of_lists_and_breakouts(cfg):
 
 
 def test_demo_morning_produces_valid_rvol_alerts(cfg):
-    symbols = load_watchlist(config.WATCHLIST_FILE)[:12]
+    symbols = load_watchlist(config.NIFTY50_FILE)[:12]
     store = MarketStore(":memory:")
     demo = DemoClient(symbols, speed=1, start="09:10", benchmark=cfg.BENCHMARK)
     clock = {"t": datetime.combine(demo.day, dtime(9, 10))}
@@ -529,7 +534,7 @@ def test_emas_reach_the_dashboard_rows(cfg):
     assert all(m[f"ema{p}"] is not None for p in (9, 20, 50, 200))
     assert m["ema9"] > m["ema20"] > m["ema50"] > m["ema200"]          # steady uptrend
 
-    symbols = load_watchlist(config.WATCHLIST_FILE)[:6]
+    symbols = load_watchlist(config.NIFTY50_FILE)[:6]
     client = DemoClient(symbols, speed=1, start="12:00", benchmark=cfg.BENCHMARK)
     eng = ScreenerEngine(client, symbols, cfg)
     eng.bootstrap(); eng.refresh_candles(); eng.refresh_ltp()
@@ -637,7 +642,7 @@ def test_live_daily_ema_and_golden_cross(cfg):
 
 def test_daily_emas_reach_rows_and_optional_vote(cfg):
     from screener.engine import score_max
-    symbols = load_watchlist(config.WATCHLIST_FILE)[:6]
+    symbols = load_watchlist(config.NIFTY50_FILE)[:6]
     client = DemoClient(symbols, speed=1, start="12:00", benchmark=cfg.BENCHMARK)
     eng = ScreenerEngine(client, symbols, cfg)
     eng.bootstrap(); eng.refresh_candles(); eng.refresh_ltp()

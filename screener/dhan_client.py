@@ -75,6 +75,19 @@ def candles_to_df(payload: dict) -> pd.DataFrame:
     return df.dropna(subset=["open", "high", "low", "close"])
 
 
+def parse_company_info(payload) -> dict:
+    """Find the CO block in a Company Info response ({"data": {"CO": {...}}}, defensively)."""
+    if not isinstance(payload, dict):
+        return {}
+    data = payload.get("data", payload)
+    if isinstance(data, list) and data:
+        data = data[0]
+    co = data.get("CO") if isinstance(data, dict) else None
+    if isinstance(co, list) and co:
+        co = co[0]
+    return co if isinstance(co, dict) else {}
+
+
 def _pick(columns, candidates: list[str]) -> str | None:
     for c in candidates:
         if c in columns:
@@ -82,81 +95,13 @@ def _pick(columns, candidates: list[str]) -> str | None:
     return None
 
 
-class DhanClient:
-    label = "Dhan (live)"
+class DhanInstruments:
+    """Dhan's public instrument list (no credentials needed): NSE stock lookup and listing."""
 
-    def __init__(self, client_id: str, access_token: str, data_per_second: float = 4,
-                 cache_dir: Path | None = None, timeout: float = 15):
-        if not client_id or not access_token:
-            raise ValueError(
-                "DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN must be set (see .env.example)."
-            )
-        self.timeout = timeout
+    def __init__(self, cache_dir: Path | None = None):
         self.cache_dir = cache_dir
-        self.session = requests.Session()
-        self.session.headers.update({
-            "access-token": access_token,
-            "client-id": client_id,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        })
-        self._data_limiter = RateLimiter(data_per_second)
-        self._quote_limiter = RateLimiter(1.0)   # documented: 1 request / second
         self.resolve_notes: dict[str, str] = {}  # why a symbol was skipped (see resolve_security_ids)
         self.series: dict[str, str] = {}         # symbol -> NSE series (EQ, BE, SM, ...)
-        self._interval_as_int = False            # docs show "5" but call it an integer enum
-        self._interval_confirmed = False         # set once a call succeeds with the current format
-
-    # ------------------------------------------------------------------ helpers
-    @staticmethod
-    def now() -> datetime:
-        return pd.Timestamp.now(tz=IST).tz_localize(None).to_pydatetime()
-
-    def _post(self, path: str, body: dict, limiter: RateLimiter, retries: int = 2) -> dict:
-        for attempt in range(retries + 1):
-            limiter.wait()
-            try:
-                resp = self.session.post(BASE_URL + path, json=body, timeout=self.timeout)
-            except requests.RequestException as exc:
-                if attempt < retries:
-                    _time.sleep(1 + attempt)
-                    continue
-                raise DhanError(f"Network error calling {path}: {exc}") from exc
-            if resp.ok:
-                data = resp.json()
-                if isinstance(data, dict) and data.get("status") == "failure":
-                    raise DhanError(self._error_text(data), self._error_code(data), resp.status_code)
-                return data
-            try:
-                err = resp.json()
-            except ValueError:
-                err = {"errorMessage": resp.text[:300]}
-            error = DhanError(f"{path}: HTTP {resp.status_code} {self._error_text(err)}",
-                              self._error_code(err), resp.status_code)
-            if error.is_rate_limit and attempt < retries:
-                _time.sleep(2 * (attempt + 1))
-                continue
-            raise error
-        raise DhanError(f"{path}: retries exhausted")
-
-    @staticmethod
-    def _error_code(err) -> str | None:
-        if isinstance(err, dict):
-            for k in ("errorCode", "error_code", "code"):
-                if err.get(k) is not None:
-                    return str(err[k])
-            data = err.get("data")
-            if isinstance(data, dict) and len(data) == 1:   # e.g. {"data": {"806": "Data APIs not Subscribed"}}
-                return str(next(iter(data)))
-        return None
-
-    @staticmethod
-    def _error_text(err) -> str:
-        if isinstance(err, dict):
-            for k in ("errorMessage", "message", "remarks", "data"):
-                if err.get(k):
-                    return str(err[k])[:300]
-        return str(err)[:300]
 
     # -------------------------------------------------------------- instruments
     def _scrip_master(self) -> pd.DataFrame:
@@ -247,6 +192,81 @@ class DhanClient:
             self.series[s] = best["_series"]
         return out
 
+
+class DhanClient(DhanInstruments):
+    label = "Dhan (live)"
+
+    def __init__(self, client_id: str, access_token: str, data_per_second: float = 4,
+                 cache_dir: Path | None = None, timeout: float = 15):
+        if not client_id or not access_token:
+            raise ValueError(
+                "DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN must be set (see .env.example)."
+            )
+        super().__init__(cache_dir)
+        self.timeout = timeout
+        self.session = requests.Session()
+        self.session.headers.update({
+            "access-token": access_token,
+            "client-id": client_id,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        })
+        self._data_limiter = RateLimiter(data_per_second)
+        self._quote_limiter = RateLimiter(1.0)   # documented: 1 request / second
+        self._interval_as_int = False            # docs show "5" but call it an integer enum
+        self._interval_confirmed = False         # set once a call succeeds with the current format
+
+    # ------------------------------------------------------------------ helpers
+    @staticmethod
+    def now() -> datetime:
+        return pd.Timestamp.now(tz=IST).tz_localize(None).to_pydatetime()
+
+    def _post(self, path: str, body: dict, limiter: RateLimiter, retries: int = 2) -> dict:
+        for attempt in range(retries + 1):
+            limiter.wait()
+            try:
+                resp = self.session.post(BASE_URL + path, json=body, timeout=self.timeout)
+            except requests.RequestException as exc:
+                if attempt < retries:
+                    _time.sleep(1 + attempt)
+                    continue
+                raise DhanError(f"Network error calling {path}: {exc}") from exc
+            if resp.ok:
+                data = resp.json()
+                if isinstance(data, dict) and data.get("status") == "failure":
+                    raise DhanError(self._error_text(data), self._error_code(data), resp.status_code)
+                return data
+            try:
+                err = resp.json()
+            except ValueError:
+                err = {"errorMessage": resp.text[:300]}
+            error = DhanError(f"{path}: HTTP {resp.status_code} {self._error_text(err)}",
+                              self._error_code(err), resp.status_code)
+            if error.is_rate_limit and attempt < retries:
+                _time.sleep(2 * (attempt + 1))
+                continue
+            raise error
+        raise DhanError(f"{path}: retries exhausted")
+
+    @staticmethod
+    def _error_code(err) -> str | None:
+        if isinstance(err, dict):
+            for k in ("errorCode", "error_code", "code"):
+                if err.get(k) is not None:
+                    return str(err[k])
+            data = err.get("data")
+            if isinstance(data, dict) and len(data) == 1:   # e.g. {"data": {"806": "Data APIs not Subscribed"}}
+                return str(next(iter(data)))
+        return None
+
+    @staticmethod
+    def _error_text(err) -> str:
+        if isinstance(err, dict):
+            for k in ("errorMessage", "message", "remarks", "data"):
+                if err.get(k):
+                    return str(err[k])[:300]
+        return str(err)[:300]
+
     # ------------------------------------------------------------------ candles
     def daily_candles(self, security_id: str, from_date: date, to_date: date,
                       segment: str = "NSE_EQ", instrument: str = "EQUITY") -> pd.DataFrame:
@@ -291,6 +311,15 @@ class DhanClient:
                 raise exc
         self._interval_confirmed = True
         return candles_to_df(payload)
+
+    # ------------------------------------------------------------- company info
+    def company_info(self, security_id: str, segment: str = "NSE_EQ") -> dict:
+        """Company profile (Data API plan): POST /v2/data/companyinfo with metrics ["CO"].
+        Returns the CO block, e.g. {"SECTOR": "Telecommunication", "INDUSTRY": "...", "MARKET_CAP": ...}."""
+        body = {"securityId": str(security_id), "exchangeSegment": segment, "instrument": "EQUITY",
+                "metrics": ["CO"]}
+        payload = self._post("/data/companyinfo", body, self._data_limiter)
+        return parse_company_info(payload)
 
     # --------------------------------------------------------------- live price
     def ltp(self, instruments: dict[str, list[str]]) -> dict[tuple[str, str], float]:

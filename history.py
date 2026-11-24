@@ -6,7 +6,8 @@
     python history.py backfill --universe nse --daily-only   # all ~3,200 NSE stocks, before 09:00 (~14 min first time)
     python history.py status                    # what is stored, per symbol
     python history.py export RELIANCE --interval 5 --from 2026-01-01 --out reliance_5m.csv
-    python history.py alerts --days 5           # breakout alerts the dashboard saved
+    python history.py alerts --days 5           # alerts the dashboard saved (all types)
+    python history.py alerts --severity HIGH CRITICAL --unacked
 
 Backfills are incremental and resumable: re-running only downloads what is missing.
 """
@@ -65,6 +66,12 @@ def cmd_backfill(args) -> None:
         b = config.BENCHMARK
         store.upsert_instruments({b["name"]: str(b["security_id"])}, segment=b["segment"])
         series.append((b["name"], b["segment"], b["instrument"], str(b["security_id"])))
+    if not args.no_sector_indices and Path(config.SECTOR_INDEX_FILE).exists():
+        # the NSE sector indices in sector_indices.csv: sector RS in the dashboard and in backtests
+        from screener.relative_strength import load_sector_map
+        idx = {bm.name: bm.security_id for bm in load_sector_map(Path(config.SECTOR_INDEX_FILE)).values() if bm.kind == "index"}
+        store.upsert_instruments(idx, segment="IDX_I")
+        series += [(name, "IDX_I", "INDEX", str(sid)) for name, sid in idx.items()]
 
     now = client.now()
     intraday_from = datetime.combine((now - timedelta(days=days)).date(), time(9, 0))
@@ -148,13 +155,17 @@ def cmd_export(args) -> None:
 # ------------------------------------------------------------------- alerts
 def cmd_alerts(args) -> None:
     store = MarketStore(args.db)
-    rows = store.recent_alerts(date.today() - timedelta(days=args.days))
+    from screener.clock import today_ist
+    rows = store.query_alerts(since=str(today_ist() - timedelta(days=args.days)), severity=args.severity,
+                              category=args.category, symbol=args.symbol, unacked=args.unacked, limit=args.limit)
     if not rows:
-        print("No saved alerts in that period. Alerts are saved while the live dashboard runs.")
+        print("No saved alerts match. Alerts are saved while the dashboard runs with a database.")
         return
-    for a in rows:
-        tag = "confirmed" if a["confirmed"] else "unconfirmed"
-        print(f"{a['session_day']} {a['time']}  {a['text']:<55} {tag} {a['confirmed_count']}/5")
+    for a in reversed(rows):                                   # oldest first, like a log
+        sev = a.get("severity") or "MEDIUM"
+        ack = "ack" if a.get("acknowledged") else "   "
+        who = a.get("symbol") or a.get("sector") or "-"
+        print(f"{a['session_day']} {a['time']}  {sev:<8} {ack} {a.get('kind', 'breakout'):<19} {who:<12} {a.get('text') or ''}")
 
 
 def main() -> None:
@@ -174,6 +185,7 @@ def main() -> None:
     b.add_argument("--daily-only", action="store_true", help="only daily candles (what all-NSE mode needs pre-market)")
     b.add_argument("--watchlist", default=str(config.WATCHLIST_FILE))
     b.add_argument("--no-benchmark", action="store_true", help="skip the NIFTY 50 index")
+    b.add_argument("--no-sector-indices", action="store_true", help="skip the NSE sector indices (needed for sector RS)")
     b.set_defaults(func=cmd_backfill)
 
     s = sub.add_parser("status", help="show what is stored")
@@ -188,8 +200,13 @@ def main() -> None:
     e.add_argument("--out", help="CSV path (default: SYMBOL_5min.csv)")
     e.set_defaults(func=cmd_export)
 
-    a = sub.add_parser("alerts", help="list saved breakout alerts")
+    a = sub.add_parser("alerts", help="list saved alerts (strategy, indicator, breakout, feed, system)")
     a.add_argument("--days", type=int, default=7)
+    a.add_argument("--severity", nargs="+", choices=["CRITICAL", "HIGH", "MEDIUM", "LOW"])
+    a.add_argument("--category", choices=["setup", "system"])
+    a.add_argument("--symbol")
+    a.add_argument("--unacked", action="store_true", help="only alerts not acknowledged yet")
+    a.add_argument("--limit", type=int, default=500)
     a.set_defaults(func=cmd_alerts)
 
     args = p.parse_args()

@@ -50,7 +50,8 @@ class DemoClient:
 
     def __init__(self, symbols: list[str], speed: float = 20.0, start: str = "09:14",
                  seed: int = 7, benchmark: dict | None = None,
-                 warmup_sessions: int = 5, daily_days: int = 300):
+                 warmup_sessions: int = 12, daily_days: int = 300, indices: list[str] | None = None,
+                 varied_history: bool = False):
         self.speed = speed
         self.day = _last_weekday(date.today())
         hh, mm = (int(x) for x in start.split(":"))
@@ -62,6 +63,9 @@ class DemoClient:
                            "BE" if s.startswith("DEMO") and i % 11 == 0 else "EQ")
                        for i, s in enumerate(symbols)}
         self._prev_candles: dict[tuple, pd.DataFrame] = {}
+        # varied_history: past sessions get the same mix of trend days and volume surges as "today"
+        # (for backtests). Off by default, so past sessions are ordinary range / drift days.
+        self.varied_history = varied_history
 
         prev_days = _previous_weekdays(self.day, daily_days)
         warm, old = prev_days[-warmup_sessions:], prev_days[:-warmup_sessions]
@@ -77,6 +81,13 @@ class DemoClient:
         self._data[(bench["segment"], str(bench["security_id"]))] = self._build(
             np.random.default_rng(seed), old, warm, "range", price=25000.0, vol=0.008, turnover_cr=1000,
         )
+        for j, sid in enumerate(indices or []):           # simulated sector indices
+            if ("IDX_I", str(sid)) in self._data:
+                continue
+            rng = np.random.default_rng(seed + 1000 + j)
+            self._data[("IDX_I", str(sid))] = self._build(
+                rng, old, warm, REGIMES[(j + seed) % len(REGIMES)], price=rng.uniform(8000, 50000),
+                vol=0.010, turnover_cr=1000)
 
     # ------------------------------------------------------------- simulation
     def now(self) -> datetime:
@@ -124,7 +135,12 @@ class DemoClient:
             close = c
         prev_ticks = []
         for d in warm_days:
-            ticks = self._session(rng, d, close, vol, shares, rng.choice(["up", "down", "range", "range"]), 1.0)
+            if self.varied_history:
+                reg = REGIMES[int(rng.integers(len(REGIMES)))]
+                mult = rng.uniform(1.6, 3.0) if reg != "range" and rng.random() < 0.35 else rng.uniform(0.6, 1.3)
+            else:
+                reg, mult = rng.choice(["up", "down", "range", "range"]), 1.0
+            ticks = self._session(rng, d, close, vol, shares, reg, mult)
             prev_ticks.append(ticks)
             p = ticks["price"]
             rows.append((pd.Timestamp(d), p.iloc[0], p.max(), p.min(), p.iloc[-1], ticks["volume"].sum()))
@@ -146,11 +162,15 @@ class DemoClient:
         return dict(self.ids)
 
     def daily_candles(self, security_id, from_date, to_date, segment="NSE_EQ", instrument="EQUITY"):
+        if (segment, str(security_id)) not in self._data:
+            return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
         daily = self._data[(segment, str(security_id))]["daily"]
         return daily[(daily.index >= pd.Timestamp(from_date)) & (daily.index <= pd.Timestamp(to_date))]
 
     def intraday_candles(self, security_id, from_dt, to_dt, interval=5, segment="NSE_EQ", instrument="EQUITY"):
         key = (segment, str(security_id))
+        if key not in self._data:
+            return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
         d = self._data[key]
         if (key, interval) not in self._prev_candles:
             prev = d["ticks_prev"]
@@ -159,7 +179,8 @@ class DemoClient:
             )
         cutoff = min(self.now(), to_dt)
         today_ticks = d["ticks_today"][d["ticks_today"].index <= cutoff]
-        df = pd.concat([self._prev_candles[(key, interval)], _candles_from_ticks(today_ticks, interval)])
+        parts = [self._prev_candles[(key, interval)], _candles_from_ticks(today_ticks, interval)]
+        df = pd.concat([x for x in parts if not x.empty]) if any(not x.empty for x in parts) else parts[0]
         return df[(df.index >= from_dt) & (df.index <= to_dt)]
 
     def ltp(self, instruments: dict[str, list[str]]) -> dict[tuple[str, str], float]:
