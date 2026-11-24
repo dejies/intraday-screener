@@ -45,7 +45,7 @@ calculated, which candles it uses, and how it feeds the bullish/bearish lists an
 | Candle timestamp | The candle's **start** time. The `09:15` 5-min candle covers 09:15:00–09:19:59. |
 | Session | NSE cash market, 09:15–15:30. Holidays are not detected. |
 | "Session day" | From 09:00 on a weekday it's **today**, even before the first candle exists. Otherwise it's the latest trading day in the data. So at 09:05, PDH means *yesterday's* high. |
-| Indicator candles | **5-minute** candles for MACD, EMA 9/20/50/200, DMI/ADX, VWAP (REST mode), opening range and Day RVOL. **1-minute** candles for Bar RVOL. **Daily** candles for ATR, turnover and price levels. |
+| Indicator candles | **5-minute** candles for MACD, EMA 9/20/50/200, DMI/ADX, VWAP (REST mode), opening range and Day RVOL. **1-minute** candles for Bar RVOL. **Daily** candles for ATR, turnover, price levels and the daily EMA set. |
 | "Completed" candle | A candle is complete once `now ≥ start + interval`. Bar RVOL only uses completed candles. |
 
 **Where the data comes from:**
@@ -69,7 +69,8 @@ calculated, which candles it uses, and how it feeds the bullish/bearish lists an
 | Wilder's smoothing (RMA) | — | α = 1/period | inside ATR, DMI, ADX | `rma()` |
 | MACD line, signal, histogram | 5-min | 12, 26, 9 | MACD vote, breakout confirmation, cross tag | `macd()` |
 | MACD cross | 5-min | last 3 bars | "× ↑ / × ↓" tag | `recent_macd_cross()` |
-| EMA 9 / 20 / 50 / 200 | 5-min | spans 9, 20, 50, 200 | EMA vote (stack), EMA column: dots, stack, 9×20 cross | `ema_values()`, `ema_stack()`, `recent_cross()` |
+| EMA 9 / 20 / 50 / 200 | 5-min | spans 9, 20, 50, 200 | EMA vote (stack), EMA 5-min column: dots, stack, 9×20 cross | `ema_values()`, `ema_stack()`, `recent_cross()` |
+| Daily EMA 9 / 20 / 50 / 200 | daily + live price | spans 9, 20, 50, 200 | EMA daily column: dots, stack, 50×200 cross (optional vote) | `compute_daily_stats()`, `live_daily_emas()` |
 | True Range | daily, 5-min | — | inside ATR and DMI | `true_range()` |
 | ATR % | daily | 14 | filter (≥ 1.5%) | `atr()` → `compute_daily_stats()` |
 | +DI / −DI | 5-min | 14 | DMI vote, confirmation | `dmi()` |
@@ -200,6 +201,41 @@ there's **no stack** tag: the short-term average has dipped under the medium one
 indicator scan: the most liquid EQ stocks that pass the filters in §16.3. Change the periods with
 `EMA_PERIODS` in `config.py`.
 
+### Daily EMA set (EMA daily column)
+
+The same four spans calculated on **daily closes**, for every stock (daily history is loaded for all of them).
+
+```
+yesterday's daily EMA = EMA(daily closes up to the previous session, span)
+today's daily EMA     = yesterday's EMA + α × (live price − yesterday's EMA)      α = 2/(span+1)
+```
+
+Today's value treats the live price as today's still-forming close, which is what a daily chart
+shows during the session. After the close it equals the end-of-day EMA.
+
+| Element | Rule |
+|---|---|
+| Four dots | live price vs today's daily EMA 9, 20, 50, 200 |
+| **stack ↑ / ↓** | price > daily EMA9 > EMA20 > EMA50 > EMA200, or the reverse |
+| **50×200 ↑** (golden cross) / **↓** (death cross) | daily EMA50 − EMA200 changed sign within the last 5 sessions, from the daily closes up to yesterday |
+
+**Example:** yesterday's daily EMA9 = 1,480 and the live price is 1,530, so today's
+EMA9 = 1,480 + 0.2 × (1,530 − 1,480) = **1,490**. For EMA200, yesterday 1,400 gives
+1,400 + 0.00995 × 130 = **1,401.29**.
+
+**History:** an EMA seeded from its first value needs about 3 × span candles before the seed stops
+mattering. For the daily EMA200 that's ~600 sessions, so the screener loads **990 days** of daily
+candles (~680 sessions). That's still one Dhan request per stock. An EMA shows "—" until a stock has
+at least that many daily candles (e.g. EMA200 for a stock listed less than 200 sessions ago).
+
+**How it's used:**
+
+- **Daily EMA vote** (§16.1, `DAILY_EMA_STACK_VOTE`): stack ↑ is a bullish vote, stack ↓ a bearish vote, and mixed gives no vote.
+- **Context only:** the dots and the 50×200 tag.
+
+Because daily history exists for every stock, this vote is available for all of them, including
+stocks outside the full indicator scan in all-NSE mode.
+
 ---
 
 ## 6. True Range and ATR
@@ -224,7 +260,7 @@ ATR(14) = Wilder's smoothing of daily TR, period 14
 ATR %   = ATR(14) / previous close × 100
 ```
 
-This uses daily candles **before** the session being screened, from up to 400 days of history.
+This uses daily candles **before** the session being screened, from up to 990 days of history.
 **Example:** ATR 45, previous close 1,500 → 45 / 1,500 × 100 = **3.0 %**.
 
 **How it's used:** it's a filter. Stocks with ATR % below **1.5 %** move too little intraday to cover
@@ -507,7 +543,7 @@ Two choices differ from a naive builder:
 
 ## 16. Putting it together: votes, score, bias, filters, ranking
 
-### 16.1 Six directional votes
+### 16.1 Seven directional votes
 
 | Vote | Bullish when | Bearish when | No vote when |
 |---|---|---|---|
@@ -516,17 +552,19 @@ Two choices differ from a naive builder:
 | DMI | +DI > −DI | −DI > +DI | not enough data |
 | RS | RS ≥ +0.2 | RS ≤ −0.2 | between −0.2 and +0.2 |
 | ORB | price > OR high | price < OR low | inside the range, or range not complete |
-| EMA stack | price > EMA9 > EMA20 > EMA50 > EMA200 | price < EMA9 < EMA20 < EMA50 < EMA200 | EMAs out of order (mixed), or not enough candles |
+| EMA stack (5-min) | price > EMA9 > EMA20 > EMA50 > EMA200 | price < EMA9 < EMA20 < EMA50 < EMA200 | EMAs out of order (mixed), or not enough candles |
+| EMA stack (daily) | price > daily EMA9 > EMA20 > EMA50 > EMA200 | the reverse | daily EMAs mixed, or fewer than 200 daily candles |
 
-With `EMA_STACK_VOTE = False` there are five votes and the maximum score is 7.
+Each EMA vote can be switched off (`EMA_STACK_VOTE`, `DAILY_EMA_STACK_VOTE`). Each one removed
+lowers the number of votes and the maximum score by one (7 votes and 9 points by default).
 
 ### 16.2 Bias and score
 
 ```
-bull votes, bear votes = count of bullish / bearish votes (0–6 each)
+bull votes, bear votes = count of bullish / bearish votes (0–7 each)
 strength = (ADX ≥ 20 ? 1 : 0) + (Day RVOL ≥ 1.5 ? 1 : 0)
 
-Bullish  if bull votes ≥ 4 and bull votes > bear votes   →  score = bull votes + strength   (max 8)
+Bullish  if bull votes ≥ 4 and bull votes > bear votes   →  score = bull votes + strength   (max 9)
 Bearish  if bear votes ≥ 4 and bear votes > bull votes   →  score = bear votes + strength
 Neutral  otherwise                                         →  score = max(bull votes, bear votes)
 ```
@@ -540,12 +578,14 @@ Neutral  otherwise                                         →  score = max(bull
 | +DI vs −DI | 31 vs 18 → bull |
 | RS | +1.4 → bull |
 | ORB | inside the range → no vote |
-| EMA stack | price > EMA9 > EMA20 > EMA50 > EMA200 → bull |
+| EMA stack (5-min) | price > EMA9 > EMA20 > EMA50 > EMA200 → bull |
+| EMA stack (daily) | daily EMAs mixed → no vote |
 | ADX | 26 → +1 strength |
 | Day RVOL | 1.2× → +0 strength |
 
-That's 5 bull votes against 0 bear, so the stock is **Bullish**, with score 5 + 1 = **6/8**.
-If the EMAs were mixed, it would still be Bullish (4 votes) with a score of **5/8**.
+That's 5 bull votes against 0 bear, so the stock is **Bullish**, with score 5 + 1 = **6/9**.
+With a bullish daily stack too it would score **7/9**. If both EMA sets were mixed, it would still be
+Bullish (4 votes), with a score of **5/9**.
 
 ### 16.3 Filters (*Neutral & filtered* unless all pass)
 
@@ -637,7 +677,7 @@ about ₹1,254 (≈ ₹2.76 crore). It's after 09:35, finished seconds ago, ther
 | 5-min candles | 35 calendar days (about 23–25 sessions, ~1,800 candles) | lets EMA and Wilder's smoothing settle (EMA200 needs at least 200 candles); Day RVOL baseline of 20 previous sessions, with room for holidays |
 | 1-min candles (REST mode) | 5 calendar days | 20-candle Bar RVOL window, covering weekends |
 | 1-min candles (live mode) | built since the feed connected (last 120 kept) | Bar RVOL starts once 21 completed candles exist, ~21 min after connecting |
-| Daily candles | 400 days | 52-week levels, 14-day ATR, 20-day turnover |
+| Daily candles | 990 days (~680 sessions) | daily EMA200 settled, 52-week levels, 14-day ATR, 20-day turnover |
 
 All of it is cached in `data/market.sqlite`, so later runs only fetch new candles.
 
@@ -682,8 +722,8 @@ All in `config.py`:
 | `RS_MIN_PCT` | 0.2 | relative-strength vote threshold |
 | `RVOL_LOOKBACK_SESSIONS` | 20 | Day RVOL baseline sessions |
 | `RVOL_MIN` | 1.5 | Day RVOL strength point and confirmation |
-| `MIN_DIRECTIONAL_VOTES` | 4 | votes needed (of 6) for bullish/bearish |
-| `EMA_STACK_VOTE` | True | count the EMA stack as a sixth vote (score out of 8) |
+| `MIN_DIRECTIONAL_VOTES` | 4 | votes needed (of 7) for bullish/bearish |
+| `EMA_STACK_VOTE` | True | count the 5-min EMA stack as a vote |
 | `TOP_N` | 5 | stocks tagged TOP per list |
 | `BREAKOUT_BUFFER_PCT` | 0.05 | how far price must clear a level (%) |
 | `MIN_CONFIRMATIONS` | 4 | confirmations (of 5) for "confirmed" |
@@ -697,4 +737,8 @@ All in `config.py`:
 | `RVOL_ALERT_MIN_BAR_VALUE` | 25,00,000 | minimum ₹ traded in the spike candle |
 | `INTRADAY_SERIES` | ("EQ",) | series that get the full scan, lists and breakout alerts |
 | `WARMUP_CALENDAR_DAYS` | 35 | 5-min history loaded (warm-up + 20-session Day RVOL baseline) |
-| `DAILY_HISTORY_DAYS` | 400 | daily history loaded |
+| `DAILY_HISTORY_DAYS` | 990 | daily history loaded (one request per stock; settles the daily EMA200) |
+| `DAILY_EMA_PERIODS` | (9, 20, 50, 200) | daily EMAs in the EMA daily column |
+| `DAILY_EMA_CROSS_FAST`, `DAILY_EMA_CROSS_SLOW` | 50, 200 | golden / death cross tag |
+| `DAILY_EMA_CROSS_LOOKBACK_DAYS` | 5 | sessions checked for a fresh 50×200 cross |
+| `DAILY_EMA_STACK_VOTE` | True | count the daily EMA stack as a vote |

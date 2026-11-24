@@ -96,6 +96,8 @@ class DailyStats:
     avg_turnover_cr: float | None
     w52_high: float
     w52_low: float
+    d_ema_prev: dict | None = None        # daily EMA per period as of the previous close
+    d_ema_cross: str | None = None        # recent daily EMA fast/slow cross (e.g. 50x200)
 
 
 def compute_daily_stats(daily: pd.DataFrame, session_day: date, cfg) -> DailyStats | None:
@@ -109,12 +111,28 @@ def compute_daily_stats(daily: pd.DataFrame, session_day: date, cfg) -> DailySta
     atr_val = ind.atr(hist["high"], hist["low"], hist["close"], cfg.DAILY_ATR_PERIOD).iloc[-1]
     turnover = (hist["close"] * hist["volume"]).tail(cfg.AVG_TURNOVER_DAYS).mean() / 1e7
     year = hist[hist.index >= hist.index[-1] - pd.Timedelta(days=365)]
+    closes = hist["close"]
+    d_ema = {p: _num(v) for p, v in ind.ema_values(closes, cfg.DAILY_EMA_PERIODS).items()}
+    fast, slow = cfg.DAILY_EMA_CROSS_FAST, cfg.DAILY_EMA_CROSS_SLOW
+    d_cross = (ind.recent_cross(ind.ema(closes, fast) - ind.ema(closes, slow), cfg.DAILY_EMA_CROSS_LOOKBACK_DAYS)
+               if len(closes) >= slow else None)
     return DailyStats(
         prev_date=hist.index[-1].date().isoformat(),
         pdh=float(last["high"]), pdl=float(last["low"]), pdc=float(last["close"]),
         atr_pct=_num(atr_val / last["close"] * 100), avg_turnover_cr=_num(turnover),
         w52_high=float(year["high"].max()), w52_low=float(year["low"].min()),
+        d_ema_prev=d_ema, d_ema_cross=d_cross,
     )
+
+
+def live_daily_emas(prev: dict | None, price: float | None, periods) -> dict[int, float | None]:
+    """Today's daily EMA with the live price as today's (still forming) close:
+    EMA_today = EMA_yesterday + alpha * (price - EMA_yesterday), alpha = 2 / (period + 1)."""
+    out = {}
+    for p in periods:
+        e = (prev or {}).get(p)
+        out[p] = e + 2 / (p + 1) * (price - e) if e is not None and price is not None else None
+    return out
 
 
 def compute_intraday(intraday: pd.DataFrame, now: datetime, cfg,
@@ -164,7 +182,7 @@ def compute_intraday(intraday: pd.DataFrame, now: datetime, cfg,
 # Classification
 # --------------------------------------------------------------------------- #
 def directional_votes(cfg) -> int:
-    return 5 + int(bool(cfg.EMA_STACK_VOTE))
+    return 5 + int(bool(cfg.EMA_STACK_VOTE)) + int(bool(cfg.DAILY_EMA_STACK_VOTE))
 
 
 def score_max(cfg) -> int:
@@ -173,8 +191,8 @@ def score_max(cfg) -> int:
 
 
 def classify(row: dict, cfg) -> dict:
-    """Directional votes (6 with the EMA stack, else 5) + two strength checks -> bias and a
-    score out of 8 (or 7). See score_max()."""
+    """Directional votes (5, plus the 5-min and daily EMA stacks when enabled) + two strength checks -> bias and a
+    score out of 9 by default (7 votes + 2). See directional_votes() and score_max()."""
     price = row.get("ltp")
 
     def side(bull: bool, bear: bool):
@@ -194,6 +212,9 @@ def classify(row: dict, cfg) -> dict:
     if cfg.EMA_STACK_VOTE:
         stack = row.get("ema_stack")
         votes["ema"] = side(stack == "bullish", stack == "bearish")
+    if cfg.DAILY_EMA_STACK_VOTE:
+        dstack = row.get("dema_stack")
+        votes["dema"] = side(dstack == "bullish", dstack == "bearish")
 
     bull = sum(v == "bull" for v in votes.values())
     bear = sum(v == "bear" for v in votes.values())
@@ -611,6 +632,12 @@ class ScreenerEngine:
             bc = self.bench["chg_pct"]
             row["rs"] = row["chg_pct"] - bc if row["chg_pct"] is not None and bc is not None else None
             row["ema_stack"] = ind.ema_stack(row.get("ltp"), {p: row.get(f"ema{p}") for p in cfg.EMA_PERIODS})
+            prev = row.pop("d_ema_prev", None) or {}
+            dlive = live_daily_emas(prev, row.get("ltp"), cfg.DAILY_EMA_PERIODS)
+            for p in cfg.DAILY_EMA_PERIODS:
+                row[f"dema{p}"], row[f"dema{p}_prev"] = dlive[p], prev.get(p)
+            row["dema_stack"] = ind.ema_stack(row.get("ltp"), dlive)
+            row["dema_cross"] = row.pop("d_ema_cross", None)
             classify(row, cfg)
             spike = self.spikes.get(row["symbol"]) or {}
             session_bars = [b for b in spike.get("recent", []) if b["bar_time"].date() == row["session_day"]]
@@ -674,6 +701,9 @@ class ScreenerEngine:
                     "rvol_from": rvol_alert_from(c).strftime("%H:%M"), "rvol_cooldown": c.RVOL_ALERT_COOLDOWN_MIN,
                     "day_rvol_sessions": c.RVOL_LOOKBACK_SESSIONS,
                     "ema_periods": list(c.EMA_PERIODS), "ema_cross": [c.EMA_CROSS_FAST, c.EMA_CROSS_SLOW],
+                    "daily_ema_periods": list(c.DAILY_EMA_PERIODS),
+                    "daily_ema_cross": [c.DAILY_EMA_CROSS_FAST, c.DAILY_EMA_CROSS_SLOW],
+                    "daily_ema_cross_days": c.DAILY_EMA_CROSS_LOOKBACK_DAYS, "daily_ema_vote": bool(c.DAILY_EMA_STACK_VOTE),
                     "rvol_min_value_lakh": c.RVOL_ALERT_MIN_BAR_VALUE / 1e5,
                     "breakouts_need_filters": c.BREAKOUT_ALERTS_REQUIRE_FILTERS,
                 },

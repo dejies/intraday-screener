@@ -152,8 +152,8 @@ bullish and bearish tables in the terminal, and exits.
 | `UNIVERSE` | `"watchlist"` | `"nse"` to scan every NSE stock by default |
 | `PORT` | 8050 | run on another port (or use `--port`) |
 | `MIN_AVG_TURNOVER_CR`, `MIN_ATR_PCT` | 100, 1.5 | loosen or tighten the liquidity and volatility filters |
-| `MIN_DIRECTIONAL_VOTES` | 4 (of 6) | 5 for stricter bullish/bearish lists |
-| `EMA_STACK_VOTE` | True | `False` for the five-vote scoring (score out of 7) |
+| `MIN_DIRECTIONAL_VOTES` | 4 (of 7) | 5 for stricter bullish/bearish lists |
+| `EMA_STACK_VOTE`, `DAILY_EMA_STACK_VOTE` | True, True | `False` drops that EMA vote (each one removed lowers the maximum score of 9 by 1) |
 | `RVOL_ALERT_THRESHOLD` | 2.5 | how big a volume spike must be to alert |
 | `RVOL_ALERT_MIN_BAR_VALUE` | ₹25,00,000 | ignore spikes in stocks trading less than this per minute |
 | `DEEP_SCAN_MAX` | 500 | fewer stocks in the full scan (fewer API calls) in all-NSE mode |
@@ -271,11 +271,13 @@ Six **directional votes** are taken on 5-minute candles (the coloured dots and t
 | DMI (14) | +DI above −DI | −DI above +DI |
 | Relative strength | stock % change ≥ benchmark + 0.2 | ≤ benchmark − 0.2 |
 | Opening range (first 15 min) | price above OR high | price below OR low |
-| EMA stack (9, 20, 50, 200) | price > EMA9 > EMA20 > EMA50 > EMA200 | price < EMA9 < EMA20 < EMA50 < EMA200 |
+| EMA stack, 5-min (9, 20, 50, 200) | price > EMA9 > EMA20 > EMA50 > EMA200 | price < EMA9 < EMA20 < EMA50 < EMA200 |
+| EMA stack, daily (9, 20, 50, 200) | same order on the daily EMAs (today's value moves with the live price) | the reverse |
 
-When the EMAs are out of order (mixed) there's no EMA vote. At least **4 of 6** votes on one side, and
-more than the other side, puts the stock in that list. Set `MIN_DIRECTIONAL_VOTES = 5` for a stricter
-list, or `EMA_STACK_VOTE = False` for the old five votes. The **score (out of 8)** is the
+When an EMA set is out of order (mixed) it gives no vote. The daily set also shows a 50×200
+golden/death-cross tag, for information. At least **4 of 7** votes on one side, and more than the other
+side, puts the stock in that list. Set `MIN_DIRECTIONAL_VOTES = 5` for a stricter list. To drop an EMA
+vote, set `EMA_STACK_VOTE = False` or `DAILY_EMA_STACK_VOTE = False`. The **score (out of 9)** is the
 number of votes plus two strength checks: **ADX ≥ 20** (a real trend, not chop) and
 **Day RVOL ≥ 1.5×** (more volume so far today than usual at this time of day). Each list is ranked by
 score, then ADX, and the top 5 are marked **TOP**.
@@ -324,8 +326,9 @@ Why not the full indicator scan for all 3,213? That would need about 3,200 REST 
 5 minutes (more than 13 minutes per pass at Dhan's rate). Stocks that fail the turnover and ATR
 filters (or aren't EQ series) would land in *Neutral & filtered* anyway. They still get live prices and ⚡ spike alerts.
 
-- **Daily history.** The first run downloads about 400 days of daily candles for every stock
-  (about 3,200 requests, roughly 13–14 minutes). Each morning it then tops up yesterday's candle for
+- **Daily history.** The first run downloads 990 days of daily candles for every stock, enough
+  for a settled daily EMA200 (about 3,200 requests, roughly 13–14 minutes; a database from an
+  earlier version tops up the older days once). Each morning it then tops up yesterday's candle for
   each stock (also about 3,200 small requests). Your watchlist loads first, then EQ stocks, then BE/SME. Either run
   `history.py backfill --universe nse --daily-only` before 09:00, or start the app by about 08:45.
   Stocks join the lists as their history loads; the banner shows progress.

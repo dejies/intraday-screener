@@ -563,11 +563,13 @@ def test_history_window_covers_the_day_rvol_sessions(cfg):
 
 
 # --------------------------------------------------------- EMA stack as a vote
-def test_ema_stack_is_a_sixth_vote(cfg):
+def test_ema_stack_is_a_vote(cfg):
     from screener.engine import score_max
-    assert score_max(cfg) == 8
-    full = classify(base_row(ema_stack="bullish"), cfg)
-    assert full["votes"]["ema"] == "bull" and full["bull_votes"] == 6 and full["score"] == 8
+    assert score_max(cfg) == 9                                           # 7 votes + 2 strength
+    full = classify(base_row(ema_stack="bullish", dema_stack="bullish"), cfg)
+    assert full["votes"]["ema"] == "bull" and full["votes"]["dema"] == "bull"
+    assert full["bull_votes"] == 7 and full["score"] == 9
+    assert classify(base_row(ema_stack="bullish"), cfg)["score"] == 8   # daily mixed/unknown: no daily vote
 
     # 3 of the old votes + the stack -> now bullish (was neutral with 3/5)
     three = dict(ltp=101.0, rs=0.1, or_high=104, or_low=98)          # RS and ORB give no vote
@@ -581,8 +583,77 @@ def test_ema_stack_is_a_sixth_vote(cfg):
     assert classify(base_row(ema_stack="mixed"), cfg)["votes"]["ema"] is None
 
 
-def test_ema_vote_can_be_switched_off(cfg):
+def test_ema_votes_can_be_switched_off(cfg):
     from screener.engine import score_max
     cfg.EMA_STACK_VOTE = False
     r = classify(base_row(ema_stack="bullish"), cfg)
-    assert "ema" not in r["votes"] and r["score"] == 7 and score_max(cfg) == 7
+    assert "ema" not in r["votes"] and r["score"] == 7 and score_max(cfg) == 8
+    cfg.DAILY_EMA_STACK_VOTE = False
+    r = classify(base_row(ema_stack="bullish", dema_stack="bullish"), cfg)
+    assert "dema" not in r["votes"] and score_max(cfg) == 7
+
+
+def test_daily_stack_vote(cfg):
+    # 3 old votes + the daily stack -> bullish; an opposing daily stack can't flip 5 votes
+    three = dict(ltp=101.0, rs=0.1, or_high=104, or_low=98)
+    assert classify(base_row(**three, dema_stack="bullish"), cfg)["bias"] == "bullish"
+    against = classify(base_row(dema_stack="bearish"), cfg)
+    assert against["bias"] == "bullish" and (against["bull_votes"], against["bear_votes"]) == (5, 1)
+    assert classify(base_row(dema_stack="mixed"), cfg)["votes"]["dema"] is None
+
+
+# ---------------------------------------------------------------- daily EMA set
+def daily_frame(closes, end="2026-11-23"):
+    idx = pd.bdate_range(end=end, periods=len(closes))
+    c = pd.Series(closes, index=idx, dtype=float)
+    return pd.DataFrame({"open": c, "high": c + 2, "low": c - 2, "close": c, "volume": 1_000_000}, index=idx)
+
+
+def test_daily_emas_use_closes_before_today(cfg):
+    from screener.engine import compute_daily_stats
+    closes = list(np.linspace(1000, 1400, 300) + 20 * np.sin(np.arange(300) / 7))
+    df = pd.concat([daily_frame(closes), daily_frame([9999.0], end="2026-11-24")])   # today's row must be ignored
+    st = compute_daily_stats(df, date(2026, 11, 24), cfg)
+    for p in (9, 20, 50, 200):
+        a, e = 2 / (p + 1), closes[0]
+        for v in closes[1:]:
+            e = e + a * (v - e)
+        assert st.d_ema_prev[p] == pytest.approx(e)
+    short = compute_daily_stats(daily_frame(closes[:150]), date(2026, 11, 24), cfg)
+    assert short.d_ema_prev[200] is None and short.d_ema_prev[50] is not None
+
+
+def test_live_daily_ema_and_golden_cross(cfg):
+    from screener.engine import compute_daily_stats, live_daily_emas
+    live = live_daily_emas({9: 100.0, 200: 90.0}, 110.0, (9, 200))
+    assert live[9] == pytest.approx(100 + 0.2 * 10) and live[200] == pytest.approx(90 + 2 / 201 * 20)
+    assert live_daily_emas({9: None}, 110.0, (9,))[9] is None
+    # long fall then a sharp rally: EMA50 climbs back above EMA200 near the end
+    closes = list(np.linspace(1500, 1000, 260)) + list(np.linspace(1000, 1700, 60))
+    crosses = [compute_daily_stats(daily_frame(closes[:n]), date(2026, 11, 24), cfg).d_ema_cross
+               for n in range(260, 321)]
+    assert "bullish" in crosses
+
+
+def test_daily_emas_reach_rows_and_optional_vote(cfg):
+    from screener.engine import score_max
+    symbols = load_watchlist(config.WATCHLIST_FILE)[:6]
+    client = DemoClient(symbols, speed=1, start="12:00", benchmark=cfg.BENCHMARK)
+    eng = ScreenerEngine(client, symbols, cfg)
+    eng.bootstrap(); eng.refresh_candles(); eng.refresh_ltp()
+    snap = eng.snapshot()
+    json.dumps(snap, allow_nan=False)
+    rows = snap["bullish"] + snap["bearish"] + snap["neutral"]
+    assert rows and all(r["dema200"] is not None and r["dema_stack"] in ("bullish", "bearish", "mixed") for r in rows)
+    r = rows[0]
+    assert r["dema9"] == pytest.approx(r["dema9_prev"] + 0.2 * (r["ltp"] - r["dema9_prev"]))
+    assert "d_ema_prev" not in r
+    assert snap["config"]["daily_ema_vote"] is True and snap["config"]["score_max"] == 9
+    assert all(r["votes"]["dema"] == {"bullish": "bull", "bearish": "bear"}.get(r["dema_stack"]) for r in rows)
+
+
+def test_daily_history_fits_one_request_and_settles_ema200(cfg):
+    from screener.cache import DAILY_CHUNK
+    assert cfg.DAILY_HISTORY_DAYS <= DAILY_CHUNK.days                         # one Dhan request per stock
+    sessions = len(pd.bdate_range(end="2026-11-24", periods=cfg.DAILY_HISTORY_DAYS * 5 // 7))
+    assert sessions >= 3 * max(cfg.DAILY_EMA_PERIODS)                       # EMA200 seed weight < 5%

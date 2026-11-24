@@ -46,10 +46,14 @@ MACD_CROSS_LOOKBACK_BARS = 3
 EMA_PERIODS = (9, 20, 50, 200)  # trend EMAs on the same 5-min candles
 EMA_CROSS_FAST, EMA_CROSS_SLOW = 9, 20   # "9x20" crossover tag
 EMA_CROSS_LOOKBACK_BARS = 3
+DAILY_EMA_PERIODS = (9, 20, 50, 200)          # daily EMAs; today's value moves with the live price
+DAILY_EMA_CROSS_FAST, DAILY_EMA_CROSS_SLOW = 50, 200   # "50x200" golden / death cross tag
+DAILY_EMA_CROSS_LOOKBACK_DAYS = 5
+DAILY_EMA_STACK_VOTE = True                   # daily stack up = bullish vote, down = bearish, mixed = none
 DMI_PERIOD = 14
 DAILY_ATR_PERIOD = 14
 AVG_TURNOVER_DAYS = 20
-DAILY_HISTORY_DAYS = 400        # enough for 52-week high/low
+DAILY_HISTORY_DAYS = 990        # ~680 sessions: settles the daily EMA200; still one Dhan request per stock
 
 # --- Filters (stocks failing these go to the "filtered" table) -----------------
 MIN_AVG_TURNOVER_CR = 100.0     # 20-day average turnover, Rs crore
@@ -59,7 +63,7 @@ MIN_ATR_PCT = 1.5               # 14-day ATR as % of price
 # Directional votes: price vs VWAP, MACD vs signal, +DI vs -DI, relative strength vs
 # benchmark, price vs opening range, and (EMA_STACK_VOTE) the EMA 9/20/50/200 stack.
 EMA_STACK_VOTE = True           # stack up = bullish vote, stack down = bearish, mixed = no vote
-MIN_DIRECTIONAL_VOTES = 4       # of 6 (5 without the EMA vote); 5 gives a stricter list
+MIN_DIRECTIONAL_VOTES = 4       # of 7 (fewer if an EMA vote is switched off); 5 gives a stricter list
 RS_MIN_PCT = 0.2                # stock % change minus benchmark % change
 # Two strength checks add to the score: trend strength and participation.
 ADX_TREND_MIN = 20.0

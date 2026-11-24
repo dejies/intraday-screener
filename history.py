@@ -167,7 +167,7 @@ def main() -> None:
     b.add_argument("--interval", type=int, nargs="+", default=[config.CANDLE_INTERVAL_MIN],
                    choices=[1, 5, 15, 25, 60], help="intraday candle size(s) in minutes")
     b.add_argument("--daily-days", type=int, default=None,
-                   help="daily history in days (default: 5 years; the screener's 400 days for --universe nse)")
+                   help="daily history in days (default: 5 years; the screener's 990 days for --universe nse)")
     b.add_argument("--symbols", nargs="+", help="instead of the watchlist")
     b.add_argument("--universe", choices=["watchlist", "nse"], default="watchlist",
                    help="nse = every NSE equity share (~3,200)")
