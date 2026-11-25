@@ -29,7 +29,7 @@
       STT ${c.stt_sell_pct}% (sell), exchange ${c.exchange_txn_pct}%, SEBI ₹${c.sebi_per_crore}/crore, stamp ${c.stamp_buy_pct}% (buy), GST ${c.gst_pct}%.</p>
       ${/DEMO/.test(REP.source) ? '<p class="down small"><strong>Demo data:</strong> simulated prices with trend days built in; these numbers only show the backtester works.</p>' : ""}
       ${cov.indices_without_5min && cov.indices_without_5min.length ? `<p class="small"><strong>Data gap:</strong> no 5-min candles for ${esc(cov.indices_without_5min.join(", "))},
-        so sector RS (and RS vs NIFTY) is unavailable there and Strong Momentum / Sector Leaders are blocked for those stocks. Run <code>python history.py backfill</code>.</p>` : ""}
+        so sector RS (and RS vs NIFTY) is unavailable there and Strong Momentum / Sector Leaders are blocked for those stocks. Run <code>python history.py backfill --watchlist nifty50.txt</code>.</p>` : ""}
       <p class="muted small">${(REP.notes || []).map(esc).join(" ")}</p>`;
   }
   function renderCompare() {

@@ -40,6 +40,20 @@ _load_dotenv(ROOT / ".env")
 DHAN_CLIENT_ID = os.getenv("DHAN_CLIENT_ID", "")
 DHAN_ACCESS_TOKEN = os.getenv("DHAN_ACCESS_TOKEN", "")
 
+# --- Access-token auto-renewal (screener/token_manager.py) ----------------------
+# Dhan tokens last 24 h; Dhan's RenewToken call swaps the current (still valid) token for a new 24-hour
+# one and expires the old one at once. The running app renews at these times and switches to the new
+# token without a restart; it also saves it in .env. Live mode only. All times IST, every day.
+TOKEN_AUTO_RENEW = True
+TOKEN_RENEW_TIMES = ("08:00", "15:40")  # pick times the app is usually running, a few hours apart
+TOKEN_RENEW_ON_EXIT = True              # also renew when the app stops, so the next start has ~24 h left
+TOKEN_RENEW_ON_START_HOURS_LEFT = 12.0  # at startup, renew if less than this many hours are left
+TOKEN_RENEW_SAFETY_MINUTES = 60         # renew at any time when less than this is left (missed schedule)
+TOKEN_RENEW_MIN_AGE_MINUTES = 60        # skip a scheduled / exit renewal when the token is younger than this
+TOKEN_RENEW_RETRY_MINUTES = 5           # after a failed renewal, try again this often until the token expires
+TOKEN_VALIDITY_HOURS = 24               # Dhan's token lifetime (used when the token has no "issued at")
+TOKEN_RENEW_URL = "https://api.dhan.co/v2/RenewToken"
+
 # --- Polling ------------------------------------------------------------------
 LTP_POLL_SECONDS = 5            # live prices: Dhan quote API allows 1 req/sec, 1000 instruments/req
 CANDLE_POLL_SECONDS = 60        # indicator refresh: one intraday-candle request per stock
@@ -84,7 +98,7 @@ AVG_TURNOVER_DAYS = 20
 DAILY_HISTORY_DAYS = 990        # ~680 sessions: settles the daily EMA200; still one Dhan request per stock
 
 # --- Filters (stocks failing these go to the "filtered" table) -----------------
-MIN_AVG_TURNOVER_CR = 100.0     # 20-day average turnover, Rs crore
+MIN_AVG_TURNOVER_CR = 0.0       # 20-day average turnover, Rs crore; 0 = off (no turnover filter)
 MIN_ATR_PCT = 1.5               # 14-day ATR as % of price
 
 # --- Bullish / bearish classification -----------------------------------------
@@ -142,6 +156,12 @@ DEEP_SCAN_ALL_IF_UNDER = 100    # small universes (a watchlist) get the full sca
 HISTORY_CALLS_PER_STEP = 8      # REST calls per background step (keeps the worker responsive)
 BREAKOUT_ALERTS_REQUIRE_FILTERS = True   # no breakout pop-ups for illiquid / quiet stocks
 DASHBOARD_MAX_ROWS = 100        # rows sent per table (search finds the rest)
+# Dashboard view filter: list only stocks whose change % today (vs the previous close) is inside this
+# band, e.g. 0.3 and 1.0; None = no limit. Applied to the bullish / bearish / neutral / strategy tables
+# before they're cut to DASHBOARD_MAX_ROWS, so every matching stock can appear. Strategies, scores and
+# alerts are unaffected. Set from the dashboard's filter bar (saved like any other setting).
+TABLE_CHG_PCT_MIN = None
+TABLE_CHG_PCT_MAX = None
 
 # --- Sector strength and market breadth (spec 4.3 / 4.4) -----------------------
 SECTOR_INDEX_FILE = ROOT / "sector_indices.csv"   # NSE sector -> NSE sector index, or "composite"
@@ -153,12 +173,16 @@ STALE_FEED_SECONDS = 30                           # no price update for this lon
 FEED_RECONNECT_STALE_SECONDS = 60                 # live feed connected but silent this long while open -> reconnect
 
 # --- Strategies and the setup score (spec §5, §6, M7) ---------------------------
-# Hard filters (turnover, ATR, series, MIN_PRICE) run first; only stocks that pass, and that have
+# Hard filters (turnover, ATR, series, price band) run first; only stocks that pass, and that have
 # intraday indicators, are evaluated. Each strategy has its own gates and reason codes; a stock may
 # qualify for several. Missing-data policy: a gate whose data is unavailable BLOCKS the strategy
 # (reported as "blocked: data unavailable"), unless its code is listed in "skip_if_missing", in which
 # case it is skipped and the skip is reported. Comparisons are strict (">"), as in the spec.
-MIN_PRICE = 0.0                 # optional hard filter on LTP (Rs); 0 = off
+# Price band on the previous close (Rs; 0 = off). Yesterday's close, not the live price, so the set of
+# stocks is fixed for the day: one that rallies through MAX_PRICE stays in. Stocks outside the band also
+# get no volume-spike or breakout alerts and don't use full-scan slots.
+MIN_PRICE = 0.0                 # e.g. 50 = skip stocks that closed below Rs 50
+MAX_PRICE = 0.0                 # e.g. 1000 = only stocks that closed at or below Rs 1,000
 STRATEGIES = {
     "strong_momentum": {
         "name": "Strong Momentum", "short": "MOM", "enabled": True,
@@ -252,6 +276,7 @@ ALERT_RULES = {
     "feed": {"enabled": True, "after_seconds": 10},   # disconnected / stale this long -> CRITICAL; recovery -> LOW
     "data_error": {"enabled": True, "severity": "MEDIUM", "cooldown_min": 10},   # repeats within 10 min are counted
     "auth": {"enabled": True, "severity": "CRITICAL"},
+    "token": {"enabled": True},          # access-token renewal: renewed -> LOW; failed / expired -> CRITICAL
 }
 ALERT_MEMORY = 1000             # alerts kept in memory (all of today's are also in SQLite)
 ALERT_SNAPSHOT_MAX = 200        # newest alerts sent to the dashboard every refresh

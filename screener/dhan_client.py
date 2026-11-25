@@ -216,14 +216,20 @@ class DhanClient(DhanInstruments):
         self._interval_as_int = False            # docs show "5" but call it an integer enum
         self._interval_confirmed = False         # set once a call succeeds with the current format
 
+    def set_token(self, token: str) -> None:
+        """Use a new access token from the next request on (after an auto-renewal)."""
+        self.session.headers["access-token"] = token
+
     # ------------------------------------------------------------------ helpers
     @staticmethod
     def now() -> datetime:
         return pd.Timestamp.now(tz=IST).tz_localize(None).to_pydatetime()
 
     def _post(self, path: str, body: dict, limiter: RateLimiter, retries: int = 2) -> dict:
+        renewed_retry = True
         for attempt in range(retries + 1):
             limiter.wait()
+            sent_with = self.session.headers.get("access-token")
             try:
                 resp = self.session.post(BASE_URL + path, json=body, timeout=self.timeout)
             except requests.RequestException as exc:
@@ -244,6 +250,9 @@ class DhanClient(DhanInstruments):
                               self._error_code(err), resp.status_code)
             if error.is_rate_limit and attempt < retries:
                 _time.sleep(2 * (attempt + 1))
+                continue
+            if error.is_auth and renewed_retry and self.session.headers.get("access-token") != sent_with:
+                renewed_retry = False            # sent with the old token while it was being renewed: once more
                 continue
             raise error
         raise DhanError(f"{path}: retries exhausted")

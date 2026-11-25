@@ -43,6 +43,10 @@ class Redactor(logging.Filter):
         super().__init__()
         self.secrets = [s for s in (secrets or []) if s and len(s) >= 4]
 
+    def add(self, secret: str) -> None:
+        if secret and len(secret) >= 4 and secret not in self.secrets:
+            self.secrets.append(secret)
+
     def clean(self, text: str) -> str:
         for s in self.secrets:
             text = text.replace(s, MASK)
@@ -97,7 +101,8 @@ def setup(level: str = "INFO", log_dir: Path | None = None, secrets: list[str] |
     for h in list(root.handlers):
         root.removeHandler(h)
     root.setLevel(getattr(logging, str(level).upper(), logging.INFO))
-    red = Redactor(secrets)
+    global _REDACTOR
+    red = _REDACTOR = Redactor(secrets)
     if console:
         ch = logging.StreamHandler()
         ch.addFilter(red)
@@ -114,6 +119,15 @@ def setup(level: str = "INFO", log_dir: Path | None = None, secrets: list[str] |
     for noisy in ("uvicorn.access", "websocket", "urllib3"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     return path
+
+
+_REDACTOR: Redactor | None = None
+
+
+def add_secret(secret: str) -> None:
+    """Mask one more value from now on (a renewed access token)."""
+    if _REDACTOR is not None:
+        _REDACTOR.add(secret)
 
 
 def new_request_id() -> str:

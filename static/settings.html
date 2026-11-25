@@ -11,7 +11,7 @@
   .sgrid td:first-child { width: 42%; }
   .sgrid tr.changed td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
   .sgrid tr.pending td { background: color-mix(in srgb, var(--warn) 12%, transparent); }
-  .sgrid input[type=number], .sgrid select { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border);
+  .sgrid input[type=number], .sgrid input[type=text], .sgrid select { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border);
     background: var(--bg); color: var(--text); width: 9em; }
   .sgrid .multi label { margin-right: 10px; white-space: nowrap; }
   .sgrid .err { color: var(--bear); font-size: 12px; }
@@ -34,6 +34,7 @@
 </div>
 <main>
   <section class="panel" id="notes"></section>
+  <section class="panel" id="tokenPanel" hidden></section>
   <div id="groups"></div>
 </main>
 <p class="disclaimer">For learning only. Not investment advice. Every threshold is a starting point to test, not a proven rule.</p>

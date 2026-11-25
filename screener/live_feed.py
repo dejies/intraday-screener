@@ -189,7 +189,10 @@ class DhanLiveFeed:
         if not client_id or not access_token:
             raise ValueError("DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN must be set for the live feed.")
         self._client_id, self._token = client_id, access_token
+        self._url_template = url_template
         self._url = url_template.format(token=access_token, client_id=client_id)
+        self._old_tokens: list[str] = []
+        self._ctl = threading.Lock()
         self.now = now_fn
         self.max_instruments = max_instruments
         self.builder = MinuteBarBuilder(max_bars)
@@ -209,7 +212,33 @@ class DhanLiveFeed:
         self._rate = deque(maxlen=30)                 # (monotonic, packets) samples for packets/s
 
     def _redact(self, text: str) -> str:
-        return str(text).replace(self._token, "***")
+        text = str(text)
+        for tok in (self._token, *self._old_tokens):
+            text = text.replace(tok, "***")
+        return text
+
+    def set_token(self, token: str) -> None:
+        """Switch to a new access token (after a renewal, which expires the old one at once): reconnect
+        with it now, and start the feed again if it had stopped on a rejected token."""
+        with self._ctl:
+            if not token or token == self._token:
+                return
+            self._old_tokens = (self._old_tokens + [self._token])[-3:]
+            self._token = token
+            self._url = self._url_template.format(token=token, client_id=self._client_id)
+            if self._stop.is_set() or not self.instruments:
+                return                           # not started yet: start() uses the new URL
+            t = self._thread
+            if self.fatal and t is not None:
+                t.join(timeout=5)                # the run loop exits after a rejected token; let it finish
+            self.fatal = None
+            self.last_error = "access token renewed: reconnecting"
+            if t is None or not t.is_alive():
+                log.info("Restarting the live feed with the renewed access token")
+                self._thread = threading.Thread(target=self._run, daemon=True, name="dhan-feed")
+                self._thread.start()
+            else:
+                self.force_reconnect("access token renewed")
 
     # ---------------------------------------------------------------- control
     def start(self, instruments: list[tuple[str, str, str]]) -> None:

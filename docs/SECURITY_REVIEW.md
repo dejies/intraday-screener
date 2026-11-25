@@ -17,7 +17,7 @@ and configuration, with the tests that back each control. It isn't an external a
 
 | # | Control | Where | Evidence |
 |---|---|---|---|
-| 1 | **No order placement.** The client only calls `/charts/historical`, `/charts/intraday`, `/data/companyinfo`, `/marketfeed/ltp` and the market-data WebSocket. No order, position, holding or funds endpoint exists in the code. | `screener/dhan_client.py`, `live_feed.py` | code search (`/v2/orders` etc.: no matches) |
+| 1 | **No order placement.** The client only calls `/charts/historical`, `/charts/intraday`, `/data/companyinfo`, `/marketfeed/ltp`, `/v2/RenewToken` (token renewal) and the market-data WebSocket. No order, position, holding or funds endpoint exists in the code. | `screener/dhan_client.py`, `live_feed.py` | code search (`/v2/orders` etc.: no matches) |
 | 2 | Credentials only in `.env` (git-ignored); loaded into `config`; never in settings, snapshots, `/health` or pages. | `config.py`, `screener/settings.py` | `test_dashboard.py::test_schema_has_no_secrets_or_paths`, `…test_pages_health_and_local_host_only` (token value absent from every payload) |
 | 3 | Logs redact the token, client id, `token=` parameters, `access-token` / `Authorization` headers and JWT-shaped strings, in messages and tracebacks; the feed also redacts its URL. | `screener/logs.py`, `live_feed.py` | `test_hardening.py::test_redactor_masks_secrets_everywhere`, `…test_json_log_file_has_ids_and_no_secrets` |
 | 4 | `manage.py check` reports whether credentials are set and the token's expiry without printing them; warns when `.env` is readable by others. `scripts/setup.sh` creates `.env` with mode 600. | `manage.py` | `test_hardening.py::test_check_never_prints_the_token` |
@@ -32,6 +32,7 @@ and configuration, with the tests that back each control. It isn't an external a
 | 13 | **SQL injection:** every query uses `?` parameters; the only formatted SQL builds placeholder lists or uses table names from constants. | `screener/store.py` | code review |
 | 14 | **Settings input:** only whitelisted keys, type- and range-checked, validated together, applied all-or-nothing. | `screener/settings.py` | `test_dashboard.py::test_coerce_validation`, `…test_apply_is_all_or_nothing_and_copy_on_write` |
 | 15 | Dhan rate limits respected (4 data requests / s, 1 quote request / s); no bulk API calls without a command you run. | `dhan_client.py` | — |
+| 16 | **Token renewal** (`screener/token_manager.py`): the new token is added to log masking before anything can log it, saved to `.env` through a temporary file with mode 600 (other lines kept), and never returned by `/api/token`, `/health`, the snapshot or alerts. The renewal address (`TOKEN_RENEW_URL`) is not an editable setting, so no page can redirect the token elsewhere; **Renew now** is a JSON-only POST. | `screener/token_manager.py`, `app.py` | `test_token.py::test_renewal_switches_everything_and_saves_env`, `…test_token_api`, `…test_env_rewrite_keeps_other_lines_and_is_private`, `test_dashboard.py::test_schema_has_no_secrets_or_paths` |
 
 ## Findings and recommendations
 
@@ -40,7 +41,7 @@ and configuration, with the tests that back each control. It isn't an external a
 | Medium | `.env` on this computer is mode 0644 (readable by other users of the Mac). | `chmod 600 .env` (`manage.py check` warns until it's done). |
 | Medium | The virtual environment uses macOS' system **Python 3.9**, which reached end of life in October 2025 (no more security fixes) and is built with LibreSSL 2.8.3. | Recreate `.venv` with Python 3.12 or 3.13 from python.org or Homebrew: `rm -rf .venv && PYTHON=python3.12 scripts/setup.sh`. The code runs on 3.9+. |
 | Low | The dashboard has no login. That's acceptable while it listens only on `127.0.0.1`. | Don't change `HOST` to `0.0.0.0` or expose the port to a network. To use it from another device, use an SSH tunnel. |
-| Low | The access token sits in plain text in `.env` (inherent to Dhan's API-token model); Dhan tokens expire after about a day, which limits exposure. | Keep `.env` out of backups you share; regenerate the token if you think it leaked. |
+| Low | The access token sits in plain text in `.env` (inherent to Dhan's API-token model). Tokens expire after a day, but auto-renewal keeps one valid indefinitely, so a copied token stays useful to whoever holds it for as long as they renew it. | Keep `.env` out of backups you share. If you think it leaked, generate a new token on Dhan Web (that ends the old chain) and put it in `.env`. The first renewal also makes `.env` mode 600. |
 | Low | Dependencies use version ranges, not hashes. | Run `pip install pip-audit && pip-audit -r requirements.txt` now and then; update within the ranges. |
 | Info | `style-src` allows inline styles (the pages use `style=` attributes). Styles can't run code, so this doesn't weaken the script protections. | — |
 | Info | The live WebSocket client has only been tested against a fake server, not the real Dhan feed. | Do the manual first-live-day checks in [OPERATIONS.md](OPERATIONS.md#7-recovery-playbook). |

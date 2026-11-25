@@ -11,6 +11,7 @@ import copy
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 log = logging.getLogger("screener.settings")
@@ -24,7 +25,7 @@ GATES = {
     "sector_leaders": ["SECTOR_RS", "STOCK_VS_SECTOR", "SECTOR_TOP_PCT", "CUM_RVOL", "ABOVE_VWAP", "EMA9_GT_EMA20"],
 }
 GROUPS = ["Universe and session", "Strategies", "Setup score", "Hard filters and votes", "Indicators and timeframes",
-          "Candidates", "Alerts", "Refresh intervals"]
+          "Candidates", "Alerts", "Refresh intervals", "Access token", "Dashboard"]
 
 
 def F(key, label, type_, group, **kw) -> dict:
@@ -80,9 +81,13 @@ def _fields() -> list[dict]:
         F("SCORE_RS_HORIZON", "RS horizon used by the score", "choice", GROUPS[2], options=HORIZONS),
         F("SCORE_MIN_DENOMINATOR", "Fewer scorable points → 'insufficient data'", "int", GROUPS[2], min=0, max=100),
 
-        F("MIN_AVG_TURNOVER_CR", "Min 20-day turnover (₹ crore)", "float", GROUPS[3], min=0, max=100000),
+        F("MIN_AVG_TURNOVER_CR", "Min 20-day turnover (₹ crore, 0 = off)", "float", GROUPS[3], min=0, max=100000,
+          help="average daily traded value over the last 20 sessions; 0 = no turnover filter"),
         F("MIN_ATR_PCT", "Min daily ATR %", "float", GROUPS[3], min=0, max=50),
-        F("MIN_PRICE", "Min price (₹, 0 = off)", "float", GROUPS[3], min=0, max=1_000_000),
+        F("MIN_PRICE", "Min price (₹, 0 = off)", "float", GROUPS[3], min=0, max=1_000_000,
+          help="on the previous close; stocks below it are filtered and get no alerts"),
+        F("MAX_PRICE", "Max price (₹, 0 = off)", "float", GROUPS[3], min=0, max=1_000_000,
+          help="on the previous close; stocks above it are filtered and get no alerts"),
         F("MIN_DIRECTIONAL_VOTES", "Votes needed for bullish / bearish", "int", GROUPS[3], min=1, max=7),
         F("RS_MIN_PCT", "RS vote threshold (± points)", "float", GROUPS[3], min=0, max=10),
         F("ADX_TREND_MIN", "ADX strength point", "float", GROUPS[3], min=0, max=100),
@@ -120,7 +125,7 @@ def _fields() -> list[dict]:
     ]
     for kind in ("strategy_qualified", "strategy_lost", "strategy_removed", "strategy_requalified", "score_cross",
                  "rvol_cross", "rs_positive", "sector_top", "sector_rs_positive", "macd_bullish", "vwap_cross",
-                 "breakout", "rvol", "feed", "data_error", "auth"):
+                 "breakout", "rvol", "feed", "data_error", "auth", "token"):
         f.append(F(f"ALERT_RULES.{kind}.enabled", f"Alert type on: {kind.replace('_', ' ')}", "bool", GROUPS[6]))
     for kind in ("strategy_lost", "strategy_removed", "strategy_requalified", "rvol_cross", "rs_positive", "sector_top",
                  "sector_rs_positive", "macd_bullish", "vwap_cross", "rvol", "data_error"):
@@ -148,6 +153,25 @@ def _fields() -> list[dict]:
         F("STALE_FEED_SECONDS", "No price update for this long → DATA STALE (s)", "int", GROUPS[7], min=5, max=600),
         F("DATA_API_MAX_PER_SECOND", "Dhan data requests per second", "float", GROUPS[7], min=0.5, max=5, restart=True,
           help="Dhan allows 5 per second"),
+
+        F("TOKEN_AUTO_RENEW", "Renew the Dhan access token automatically", "bool", GROUPS[8],
+          help="live mode only; the app switches to the new token without a restart and saves it in .env"),
+        F("TOKEN_RENEW_TIMES", "Renewal times (IST, every day)", "times", GROUPS[8], max_items=6,
+          help="comma-separated HH:MM, e.g. 08:00, 15:40. Pick times the app is usually running, a few hours apart"),
+        F("TOKEN_RENEW_ON_EXIT", "Also renew when the app stops", "bool", GROUPS[8],
+          help="so the next start finds a token with about 24 hours left"),
+        F("TOKEN_RENEW_ON_START_HOURS_LEFT", "At startup, renew if less than this is left (hours)", "float", GROUPS[8],
+          min=0, max=24),
+        F("TOKEN_RENEW_SAFETY_MINUTES", "Renew at any time when less than this is left (min)", "int", GROUPS[8],
+          min=5, max=600, help="catches a missed schedule"),
+        F("TOKEN_RENEW_MIN_AGE_MINUTES", "Skip a scheduled or exit renewal if the token is younger than (min)", "int",
+          GROUPS[8], min=0, max=720),
+        F("TOKEN_RENEW_RETRY_MINUTES", "After a failed renewal, retry every (min)", "int", GROUPS[8], min=1, max=120),
+
+        F("TABLE_CHG_PCT_MIN", "Tables: change % today from (blank = no limit)", "float", GROUPS[9], min=-100, max=100,
+          nullable=True, help="also in the dashboard's filter bar; affects only what the tables list"),
+        F("TABLE_CHG_PCT_MAX", "Tables: change % today to (blank = no limit)", "float", GROUPS[9], min=-100, max=100,
+          nullable=True),
     ]
     for x in f:
         x.setdefault("restart", False)
@@ -157,10 +181,11 @@ def _fields() -> list[dict]:
 FIELDS = _fields()
 BY_KEY = {f["key"]: f for f in FIELDS}
 NOTES = {
-    "session": "NSE cash market 09:15–15:30 IST. Exchange holidays aren't detected yet (step 8).",
+    "session": "NSE cash market 09:15–15:30 IST; exchange holidays come from nse_holidays.csv.",
     "channels": "Alerts reach you in the dashboard (toasts, sound, desktop notifications). Email / Telegram aren't built. "
                 "Per-browser toast, sound and mute choices are in the dashboard's Alert settings.",
-    "credentials": "Dhan credentials live in .env only and are never shown or changed here.",
+    "credentials": "Dhan credentials live in .env only and are never shown here; the access-token renewal "
+                   "(last group) rewrites DHAN_ACCESS_TOKEN in .env.",
 }
 
 
@@ -201,6 +226,8 @@ def set_value(cfg, key: str, value) -> None:
 # --------------------------------------------------------------------------- validation
 def coerce(field: dict, raw):
     t = field["type"]
+    if field.get("nullable") and (raw is None or (isinstance(raw, str) and raw.strip() == "")):
+        return None
     if t == "bool":
         if isinstance(raw, bool):
             return raw
@@ -239,6 +266,24 @@ def coerce(field: dict, raw):
         if len(raw) < field.get("min_items", 0):
             raise ValueError(f"choose at least {field['min_items']}")
         return [x for x in field["options"] if x in raw]          # canonical order, no duplicates
+    if t == "times":
+        if raw is None:
+            raw = []
+        items = raw if isinstance(raw, (list, tuple)) else str(raw).replace(";", ",").split(",")
+        out = []
+        for x in items:
+            s = str(x).strip()
+            if not s:
+                continue
+            m = re.fullmatch(r"(\d{1,2})[:.](\d{2})", s)
+            if not m or int(m[1]) > 23 or int(m[2]) > 59:
+                raise ValueError(f"'{s}' isn't a time like 08:00")
+            v = f"{int(m[1]):02d}:{m[2]}"
+            if v not in out:
+                out.append(v)
+        if len(out) > field.get("max_items", 12):
+            raise ValueError(f"at most {field['max_items']} times")
+        return sorted(out)
     raise ValueError(f"unknown type {t}")
 
 
@@ -260,6 +305,12 @@ def cross_checks(cfg) -> dict[str, str]:
             errs[f"SCORE_BOUNDS.{comp}.1"] = "must be above the value scoring 0"
     if sum(cfg.SCORE_WEIGHTS.values()) <= 0:
         errs["SCORE_WEIGHTS.cum_rvol"] = "at least one weight must be above 0"
+    lo, hi = getattr(cfg, "MIN_PRICE", 0) or 0, getattr(cfg, "MAX_PRICE", 0) or 0
+    if lo and hi and lo >= hi:
+        errs["MAX_PRICE"] = "must be above the min price"
+    lo, hi = getattr(cfg, "TABLE_CHG_PCT_MIN", None), getattr(cfg, "TABLE_CHG_PCT_MAX", None)
+    if lo is not None and hi is not None and lo > hi:
+        errs["TABLE_CHG_PCT_MAX"] = "must be at least the 'from' value"
     r = cfg.ALERT_RULES.get("rvol_cross", {})
     if r.get("rearm_below", 0) >= r.get("threshold", 1):
         errs["ALERT_RULES.rvol_cross.rearm_below"] = "must be below the threshold"
@@ -314,7 +365,7 @@ def apply(cfg, changes: dict, defaults: dict, reset: list[str] | None = None) ->
         return {"applied": [], "restart": [], "errors": errors}
     trial = type("Trial", (), {})()
     for k in ("MACD_FAST", "MACD_SLOW", "RVOL_MIN_SESSIONS", "RVOL_LOOKBACK_SESSIONS", "SCORE_BOUNDS",
-              "SCORE_WEIGHTS", "ALERT_RULES"):
+              "SCORE_WEIGHTS", "ALERT_RULES", "MIN_PRICE", "MAX_PRICE", "TABLE_CHG_PCT_MIN", "TABLE_CHG_PCT_MAX"):
         setattr(trial, k, copy.deepcopy(getattr(cfg, k)))
     for key, v in plan.items():
         root, _ = _split(key)

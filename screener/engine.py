@@ -320,6 +320,36 @@ def score_max(cfg) -> int:
     return directional_votes(cfg) + 2
 
 
+def chg_band(cfg) -> tuple[float | None, float | None]:
+    """The dashboard's change-% view filter (TABLE_CHG_PCT_MIN / MAX; None = no limit)."""
+    return getattr(cfg, "TABLE_CHG_PCT_MIN", None), getattr(cfg, "TABLE_CHG_PCT_MAX", None)
+
+
+def in_chg_band(row: dict, band) -> bool:
+    lo, hi = band
+    if lo is None and hi is None:
+        return True
+    v = row.get("chg_pct")
+    return v is not None and (lo is None or v >= lo) and (hi is None or v <= hi)
+
+
+def price_band_reason(row: dict, cfg) -> str | None:
+    """Why the stock is outside MIN_PRICE / MAX_PRICE (0 = off), or None when it's inside. Uses the previous
+    close, so the band picks today's stocks once and doesn't flicker as the price moves; the live price
+    only when there's no previous close."""
+    lo, hi = getattr(cfg, "MIN_PRICE", 0) or 0, getattr(cfg, "MAX_PRICE", 0) or 0
+    if not (lo or hi):
+        return None
+    price, label = (row["pdc"], "previous close") if row.get("pdc") else (row.get("ltp"), "price")
+    if price is None:
+        return None
+    if lo and price < lo:
+        return f"{label} Rs {price:,.2f} < {lo:g}"
+    if hi and price > hi:
+        return f"{label} Rs {price:,.2f} > {hi:g}"
+    return None
+
+
 def classify(row: dict, cfg) -> dict:
     """Directional votes (5, plus the 5-min and daily EMA stacks when enabled) + two strength checks -> bias and a
     score out of 9 by default (7 votes + 2). See directional_votes() and score_max()."""
@@ -367,11 +397,12 @@ def classify(row: dict, cfg) -> dict:
         reasons.append("daily history not loaded yet")
     elif row.get("atr_pct") is None:            # e.g. a recent listing
         reasons.append(f"only {row.get('daily_bars', 0)} daily candles: ATR needs {cfg.DAILY_ATR_PERIOD}")
-    if row.get("avg_turnover_cr") is not None and row["avg_turnover_cr"] < cfg.MIN_AVG_TURNOVER_CR:
-        reasons.append(f"turnover Rs {row['avg_turnover_cr']:.0f} cr < {cfg.MIN_AVG_TURNOVER_CR:.0f}")
-    min_price = getattr(cfg, "MIN_PRICE", 0) or 0
-    if min_price and price is not None and price < min_price:
-        reasons.append(f"price Rs {price:,.2f} < {min_price:g}")
+    min_turnover = getattr(cfg, "MIN_AVG_TURNOVER_CR", 0) or 0           # 0 = no turnover filter
+    if min_turnover > 0 and row.get("avg_turnover_cr") is not None and row["avg_turnover_cr"] < min_turnover:
+        reasons.append(f"turnover Rs {row['avg_turnover_cr']:.0f} cr < {min_turnover:g}")
+    band = price_band_reason(row, cfg)
+    if band:
+        reasons.append(band)
     if row.get("atr_pct") is not None and row["atr_pct"] < cfg.MIN_ATR_PCT:
         reasons.append(f"ATR {row['atr_pct']:.1f}% < {cfg.MIN_ATR_PCT}%")
 
@@ -467,8 +498,8 @@ class BreakoutTracker:
         than the last one evaluated is checked, so a slow refresh cannot skip a spike.
         Bars before RVOL_ALERT_FROM or `not_before` (e.g. a live feed that just
         (re)connected), bars older than RVOL_ALERT_MAX_AGE_MIN, bars that traded less
-        than RVOL_ALERT_MIN_BAR_VALUE rupees, and repeats inside the per-stock
-        cooldown are skipped. NSE equities only."""
+        than RVOL_ALERT_MIN_BAR_VALUE rupees, stocks outside the MIN_PRICE / MAX_PRICE
+        band, and repeats inside the per-stock cooldown are skipped. NSE equities only."""
         cfg = self.cfg
         if row.get("segment", "NSE_EQ") != "NSE_EQ":
             return []
@@ -479,6 +510,7 @@ class BreakoutTracker:
         max_age = timedelta(minutes=cfg.RVOL_ALERT_MAX_AGE_MIN)
         cooldown = timedelta(minutes=cfg.RVOL_ALERT_COOLDOWN_MIN)
         start = rvol_alert_from(cfg)
+        outside_band = price_band_reason(row, cfg) is not None
         new = []
         for b in bars:
             bar, rvol = b["bar_time"], b["bar_rvol"]
@@ -486,7 +518,7 @@ class BreakoutTracker:
             if checked is not None and bar <= checked:
                 continue
             self._rvol_checked[sym] = bar
-            if rvol <= cfg.RVOL_ALERT_THRESHOLD or bar.time() < start or now - (bar + interval) > max_age:
+            if outside_band or rvol <= cfg.RVOL_ALERT_THRESHOLD or bar.time() < start or now - (bar + interval) > max_age:
                 continue
             if not_before is not None and bar < not_before:
                 continue
@@ -525,8 +557,10 @@ class BreakoutTracker:
         return [{"label": lbl, "direction": LEVEL_DIRECTION[lbl]} for lbl in self._fired.get(symbol, [])]
 
     def check(self, row: dict, now: datetime) -> list[dict]:
+        """Level crossings; never for stocks outside the MIN_PRICE / MAX_PRICE band, even when
+        BREAKOUT_ALERTS_REQUIRE_FILTERS is off."""
         sym, price = row["symbol"], row.get("ltp")
-        if price is None:
+        if price is None or price_band_reason(row, self.cfg):
             return []
         first_look = sym not in self._seen
         new = []
@@ -595,7 +629,8 @@ def strategy_config_json(cfg) -> tuple[str, str]:
     blob = {"strategies": cfg.STRATEGIES, "score_weights": cfg.SCORE_WEIGHTS, "score_bounds": cfg.SCORE_BOUNDS,
             "score_rs_horizon": cfg.SCORE_RS_HORIZON, "score_min_denominator": cfg.SCORE_MIN_DENOMINATOR,
             "filters": {"min_turnover_cr": cfg.MIN_AVG_TURNOVER_CR, "min_atr_pct": cfg.MIN_ATR_PCT,
-                        "series": list(cfg.INTRADAY_SERIES), "min_price": getattr(cfg, "MIN_PRICE", 0)},
+                        "series": list(cfg.INTRADAY_SERIES), "min_price": getattr(cfg, "MIN_PRICE", 0),
+                        "max_price": getattr(cfg, "MAX_PRICE", 0)},
             "consolidation": [cfg.CONSOLIDATION_BARS, cfg.CONSOLIDATION_MAX_ATR_MULT],
             "breakout_buffer_pct": cfg.BREAKOUT_BUFFER_PCT,
             "vwap": [cfg.VWAP_CROSS_BUFFER_PCT, cfg.VWAP_CONFIRM_SECONDS], "rvol_min_sessions": cfg.RVOL_MIN_SESSIONS}
@@ -642,6 +677,7 @@ class ScreenerEngine:
         self._ltp_mono: float | None = None    # real (monotonic) time of the last price update
         self.rows: list[dict] = []
         self.alerts = AlertCentre(cfg, store, source=getattr(client, "label", None))   # spec M8
+        self.token_status = None                # set by app.py in live mode: TokenManager.status
         self.alert_rules = AlertRules(cfg)
         self.monitor = SystemMonitor(cfg)
         self._strategy_meta = strat.strategy_meta(cfg)
@@ -688,6 +724,16 @@ class ScreenerEngine:
             except Exception as err:            # an alert must never break error handling
                 log.warning("Could not raise an alert for an error: %s", err)
 
+    def _token_status(self) -> dict | None:
+        fn = getattr(self, "token_status", None)
+        if fn is None:
+            return None
+        try:
+            return fn()
+        except Exception as exc:
+            log.warning("Token status failed: %s", exc)
+            return None
+
     def _auth_alert(self, message: str) -> None:
         rule = self.cfg.ALERT_RULES.get("auth", {})
         if not rule.get("enabled", True):
@@ -696,7 +742,8 @@ class ScreenerEngine:
         self.alerts.emit({"kind": "auth", "severity": rule.get("severity", "CRITICAL"), "symbol": "", "direction": "",
                           "level_name": "Credentials", "alert_key": f"{self.alerts.session_day}|auth|{message}",
                           "text": f"Dhan rejected the credentials: {message}. Generate a new access token "
-                                  "(web.dhan.co → My Profile → Access DhanHQ APIs), update .env and restart."}, now)
+                                  "(web.dhan.co → My Profile → Access DhanHQ APIs) and put it in .env: the running "
+                                  "app loads it within a minute."}, now)
 
     def _data_error_alert(self, msg: str) -> None:
         """Historical-data / indicator failures (spec §8). The same failure for many stocks within the
@@ -1201,6 +1248,9 @@ class ScreenerEngine:
             rest = sorted((r for r in self.rows if id(r) not in listed),
                           key=lambda r: (-r["score"], -(r.get("bar_rvol") or 0)))
             c = self.cfg
+            band = chg_band(c)
+            if band != (None, None):                 # view filter: before the cut, so every match can show
+                bull, bear, rest = ([r for r in t if in_chg_band(r, band)] for t in (bull, bear, rest))
             m = c.DASHBOARD_MAX_ROWS
             return _clean({
                 **self._extra_status(),
@@ -1213,6 +1263,7 @@ class ScreenerEngine:
                 "holiday": get_calendar().holiday_name(now.date()),
                 "calendar": get_calendar().coverage(now.date()),
                 "session_day": self.session_day,
+                "token": self._token_status(),
                 "ready": self.ready,
                 "last_ltp_update": self.last_ltp_update.strftime("%H:%M:%S") if self.last_ltp_update else None,
                 "last_candle_update": self.last_candle_update.strftime("%H:%M:%S") if self.last_candle_update else None,
@@ -1242,7 +1293,8 @@ class ScreenerEngine:
                     "adx_min": c.ADX_TREND_MIN, "rvol_min": c.RVOL_MIN, "rs_min": c.RS_MIN_PCT,
                     "min_votes": c.MIN_DIRECTIONAL_VOTES, "min_turnover_cr": c.MIN_AVG_TURNOVER_CR,
                     "n_votes": directional_votes(c), "score_max": score_max(c), "ema_vote": bool(c.EMA_STACK_VOTE),
-                    "min_atr_pct": c.MIN_ATR_PCT, "top_n": c.TOP_N,
+                    "min_atr_pct": c.MIN_ATR_PCT, "top_n": c.TOP_N, "chg_band": list(chg_band(c)),
+                    "min_price": getattr(c, "MIN_PRICE", 0) or 0, "max_price": getattr(c, "MAX_PRICE", 0) or 0,
                     "buffer_pct": c.BREAKOUT_BUFFER_PCT, "min_confirmations": c.MIN_CONFIRMATIONS,
                     "rvol_enabled": c.RVOL_SPIKE_ENABLED, "rvol_interval": c.RVOL_SPIKE_INTERVAL_MIN,
                     "rvol_lookback": c.RVOL_SPIKE_LOOKBACK_BARS, "rvol_threshold": c.RVOL_ALERT_THRESHOLD,

@@ -18,7 +18,7 @@ from datetime import date, datetime, time, timedelta
 from . import indicators as ind
 from . import logs
 from .engine import (PRE_OPEN, ScreenerEngine, compute_daily_stats, compute_intraday,
-                     expected_session_day, market_phase)
+                     expected_session_day, market_phase, price_band_reason)
 
 log = logging.getLogger(__name__)
 
@@ -86,8 +86,10 @@ class LiveScreenerEngine(ScreenerEngine):
         if len(self.ids) <= cfg.DEEP_SCAN_ALL_IF_UNDER:
             cands = tradable
         else:
-            cands = [s for s in tradable if (stats[s].avg_turnover_cr or 0) >= cfg.MIN_AVG_TURNOVER_CR
-                     and (stats[s].atr_pct or 0) >= cfg.MIN_ATR_PCT]
+            min_turnover = getattr(cfg, "MIN_AVG_TURNOVER_CR", 0) or 0       # 0 = no turnover filter
+            cands = [s for s in tradable if (min_turnover <= 0 or (stats[s].avg_turnover_cr or 0) >= min_turnover)
+                     and (stats[s].atr_pct or 0) >= cfg.MIN_ATR_PCT
+                     and price_band_reason({"pdc": stats[s].pdc}, cfg) is None]
         cands.sort(key=lambda s: -(stats[s].avg_turnover_cr or 0))
         return cands[:cfg.DEEP_SCAN_MAX]
 

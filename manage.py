@@ -13,7 +13,6 @@ expires (decoded locally, nothing is sent anywhere).
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
 import shutil
@@ -47,12 +46,11 @@ class Report:
 
 def token_expiry(token: str) -> datetime | None:
     """The `exp` claim of a JWT, decoded locally (no signature check, nothing leaves the machine)."""
+    from screener.token_manager import jwt_claims
     try:
-        payload = token.split(".")[1]
-        payload += "=" * (-len(payload) % 4)
-        exp = json.loads(base64.urlsafe_b64decode(payload)).get("exp")
+        exp = jwt_claims(token or "").get("exp")
         return datetime.fromtimestamp(int(exp), timezone.utc) if exp else None
-    except Exception:
+    except (TypeError, ValueError, OverflowError, OSError):
         return None
 
 
@@ -163,7 +161,7 @@ def check_db(r: Report, path: Path, quick: bool) -> None:
         for seg, iv, n, a, b in rows:
             r.add(OK, f"candles {seg} {iv if iv == 'D' else iv + '-min'}", f"{n} series, {a[:10]} to {b[:10]}")
         if not any(seg == "IDX_I" and iv == "5" for seg, iv, *_ in rows):
-            r.add(WARN, "index 5-min candles", "none: backtests can't measure sector RS (python history.py backfill)")
+            r.add(WARN, "index 5-min candles", "none: backtests can't measure sector RS (python history.py backfill --watchlist nifty50.txt)")
     except sqlite3.DatabaseError as exc:
         r.add(FAIL, "database", f"can't read {path}: {exc}")
     finally:

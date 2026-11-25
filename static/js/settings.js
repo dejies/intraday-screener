@@ -9,7 +9,7 @@
   let errors = {};
 
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-  const show = (v) => Array.isArray(v) ? (v.length ? v.join(", ") : "none") : typeof v === "boolean" ? (v ? "on" : "off") : String(v);
+  const show = (v) => v === null || v === undefined ? "none" : Array.isArray(v) ? (v.length ? v.join(", ") : "none") : typeof v === "boolean" ? (v ? "on" : "off") : String(v);
 
   function input(f) {
     const v = f.key in pending ? pending[f.key] : f.value;
@@ -20,6 +20,7 @@
       return `<input type="number" data-key="${k}" value="${esc(v)}" step="${step}"${f.min !== undefined ? ` min="${f.min}"` : ""}${f.max !== undefined ? ` max="${f.max}"` : ""}>`;
     }
     if (f.type === "choice") return `<select data-key="${k}">${f.options.map((o) => `<option value="${esc(o)}" ${String(o) === String(v) ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
+    if (f.type === "times") return `<input type="text" data-key="${k}" value="${esc((v || []).join(", "))}" placeholder="08:00, 15:40" spellcheck="false">`;
     if (f.type === "multi") return `<span class="multi" data-key="${k}">${f.options.map((o) => `<label><input type="checkbox" data-multi="${k}" value="${esc(o)}" ${(v || []).includes(o) ? "checked" : ""}> ${esc(o)}</label>`).join("")}</span>`;
     return esc(show(v));
   }
@@ -65,6 +66,7 @@
     if (f.type === "multi") return [...document.querySelectorAll(`input[data-multi="${CSS.escape(key)}"]`)].filter((x) => x.checked).map((x) => x.value);
     if (f.type === "int" || f.type === "float") return el.value === "" ? null : Number(el.value);
     if (f.type === "choice") return f.options.find((o) => String(o) === el.value);
+    if (f.type === "times") return el.value.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
     return el.value;
   }
   $("groups").addEventListener("change", (e) => {
@@ -111,6 +113,38 @@
     await load();
   });
   $("find").addEventListener("input", applyFind);
+
+  // Access token: expiry, renewal plan, "Renew now". The token itself never reaches the page.
+  async function loadToken() {
+    let t;
+    try { t = await (await fetch("/api/token", { cache: "no-store" })).json(); } catch { return; }
+    const el = $("tokenPanel");
+    el.hidden = false;
+    if (!t.available) { el.innerHTML = `<p><strong>Access token.</strong> <span class="muted">${esc(t.reason)}</span></p>`; return; }
+    const cls = { ok: "up", expiring: "warn", unknown: "warn" }[t.state] || "down";
+    const left = t.hours_left === null ? "" : t.hours_left <= 0 ? " (expired)" : ` (${t.hours_left} h left)`;
+    const plan = t.auto_renew
+      ? `Auto-renewal at <strong>${esc(t.times.length ? t.times.join(", ") : "no set times")}</strong> IST${t.on_exit ? ", when the app stops" : ""}, and whenever it's about to expire. Next: ${t.next ? `${esc(t.next.label)} (${esc(t.next.why)})` : "—"}.`
+      : "Auto-renewal is <strong>off</strong>.";
+    const last = t.last ? `<br>Last: <span class="${t.last.ok ? "up" : "down"}">${t.last.ok ? "OK" : "failed"}</span> at ${esc(t.last.time)} (${esc(t.last.reason)}): ${esc(t.last.message)}` : "";
+    el.innerHTML = `<p><strong>Access token.</strong> Valid until <span class="${cls}">${esc(t.expires_label || "unknown")} IST${left}</span>. ${plan}${last}</p>
+      <p><button id="renewNow" ${t.busy || t.state === "expired" ? "disabled" : ""}>Renew now</button>
+      <span class="muted">Renewing replaces the token everywhere at once: a <code>history.py</code> or <code>backtest.py</code> still running with the old one stops working.</span>
+      <span id="renewResult"></span></p>`;
+    $("renewNow").addEventListener("click", async () => {
+      if (!confirm("Renew the Dhan access token now? The current token stops working immediately.")) return;
+      $("renewNow").disabled = true; $("renewResult").textContent = " renewing…";
+      try {
+        const res = await fetch("/api/token/renew", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const r = await res.json();
+        $("renewResult").textContent = r.result ? ` ${r.result.ok ? "✓" : "✗"} ${r.result.message}` : ` ✗ ${r.error || res.status}`;
+        $("renewResult").className = r.result && r.result.ok ? "up" : "down";
+      } catch (e) { $("renewResult").textContent = ` ✗ ${e}`; $("renewResult").className = "down"; }
+      setTimeout(loadToken, 1500);
+    });
+  }
+  loadToken();
+  setInterval(() => { if (!document.hidden && !($("renewNow") || {}).disabled) loadToken(); }, 60_000);
   window.addEventListener("beforeunload", (e) => { if (Object.keys(pending).length) { e.preventDefault(); e.returnValue = ""; } });
   load();
 })();

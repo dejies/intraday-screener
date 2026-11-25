@@ -138,7 +138,7 @@ SECURITY_HEADERS = {
 
 
 def create_app(engine: ScreenerEngine, cfg=None, settings_path: Optional[Path] = None,
-               settings_defaults: Optional[dict] = None):
+               settings_defaults: Optional[dict] = None, tokens=None):
     """FastAPI app: static dashboard, JSON API, and /ws for incremental pushes.
 
     Local-only safety: requests must name a local Host (stops DNS-rebinding pages), POST bodies must
@@ -221,7 +221,26 @@ def create_app(engine: ScreenerEngine, cfg=None, settings_path: Optional[Path] =
     def health():
         h = engine.health()
         h["push"] = {"clients": broadcaster.clients, "build_ms": broadcaster.build_ms}
+        if tokens is not None:
+            t = tokens.status()
+            h["token"] = {k: t[k] for k in ("state", "expires", "hours_left", "auto_renew")}
         return JSONResponse(h, status_code=200 if h["status"] == "ok" else 503)
+
+    @app.get("/api/token")
+    def token_status():
+        """Access-token expiry and the renewal schedule. Never the token itself."""
+        if tokens is None:
+            return {"available": False, "reason": "no Dhan token in demo mode"}
+        return {"available": True, **tokens.status()}
+
+    @app.post("/api/token/renew")
+    async def token_renew(request: Request):
+        if await json_body(request) is None:
+            return JSONResponse({"error": "send JSON (Content-Type: application/json)"}, status_code=415)
+        if tokens is None:
+            return JSONResponse({"error": "no Dhan token in demo mode"}, status_code=409)
+        result = await run_in_threadpool(tokens.renew_now, "manual")
+        return {"available": True, "result": result, **tokens.status()}
 
     @app.get("/api/state")
     def state(alerts_since: Optional[int] = None):
@@ -408,7 +427,16 @@ def main() -> None:
         return
 
     stop = threading.Event()
+    tokens = None
+    if not args.demo:                           # access-token auto-renewal (screener/token_manager.py)
+        from screener.token_manager import TokenManager
+        tokens = TokenManager(cfg, config.ROOT / ".env", clients=[getattr(client, "inner", client)],
+                              feed=getattr(engine, "feed", None), engine=engine, also_update=[config],
+                              add_secret=logs.add_secret)
+        engine.token_status = tokens.status
     threading.Thread(target=engine.run_forever, args=(stop,), daemon=True, name="screener").start()
+    if tokens is not None:
+        tokens.start(stop)
     url = f"http://{cfg.HOST}:{args.port}"
     log.info("Dashboard on %s  (source: %s, universe: %s, %d symbols, history: %s)", url, client.label,
              args.universe, len(engine.symbols), store.label if store else "off")
@@ -416,10 +444,15 @@ def main() -> None:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     try:
         import uvicorn
-        app = create_app(engine, cfg, settings_path, defaults)
+        app = create_app(engine, cfg, settings_path, defaults, tokens=tokens)
         uvicorn.run(app, host=cfg.HOST, port=args.port, log_level="warning", ws_max_size=1 << 20,
                     log_config=None)                 # use our logging: JSON file, redaction
     finally:
+        if tokens is not None:                  # renew on the way out, so the next start has ~24 h left
+            try:
+                tokens.on_exit()
+            except BaseException:               # a second Ctrl+C or a network error: don't hang the exit
+                log.exception("Access-token renewal on exit failed")
         stop.set()
 
 

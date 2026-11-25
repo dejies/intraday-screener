@@ -70,8 +70,10 @@ about 20 minutes. Demo data is never saved. Useful variations:
 4. **Keep the token private.**
    - Put it in `.env` only (git ignores that file). Never put it in code, chats or commits.
    - Environment variables with the same names override `.env`.
-   - Tokens expire, typically after about 24 hours. When the dashboard shows a red "credentials
-     rejected" banner, generate a new token, paste it into `.env` and restart.
+   - Tokens expire after 24 hours. The running app **renews the token itself** (see
+     [Access-token auto-renewal](#access-token-auto-renewal)), so you only generate one by hand the
+     first time and after a gap of more than a day with the app stopped. Paste a new token into `.env`
+     and the running app loads it within a minute; no restart needed.
 
 ### 5. Build the stock list with sectors (`watchlist.csv`)
 
@@ -150,7 +152,7 @@ bullish and bearish tables in the terminal, and exits.
 
 | Time (IST) | What to do |
 |---|---|
-| Before 08:45 | If yesterday's token has expired, generate a new one and update `.env` |
+| Before 08:45 | Only after a weekend or a day off with the app stopped: the token may have expired, so generate a new one and put it in `.env` (the header's **token** badge, or `manage.py check`, shows how long it has left) |
 | Once a week | `universe.py build` to pick up new listings (only new or stale stocks are re-fetched) |
 | 08:30–08:45 | *All-NSE only:* `history.py backfill --universe nse --daily-only` |
 | 08:45–09:10 | Start `app.py`, enable alerts, click **Test alert** |
@@ -183,7 +185,9 @@ bullish and bearish tables in the terminal, and exits.
 |---|---|---|
 | `UNIVERSE` | `"watchlist"` | `"nse"` to scan every NSE stock by default |
 | `PORT` | 8050 | run on another port (or use `--port`) |
-| `MIN_AVG_TURNOVER_CR`, `MIN_ATR_PCT` | 100, 1.5 | loosen or tighten the liquidity and volatility filters |
+| `MIN_AVG_TURNOVER_CR`, `MIN_ATR_PCT` | 0 (off), 1.5 | a liquidity filter (e.g. 100 = ₹100 crore a day; 0 = none) and the volatility filter |
+| `TABLE_CHG_PCT_MIN`, `TABLE_CHG_PCT_MAX` | none | list only stocks whose change % today is in this band, e.g. 0.3 to 1 (the dashboard's **Chg %** filter; tables only) |
+| `MIN_PRICE`, `MAX_PRICE` | 0, 0 (off) | screen only stocks in a price range, e.g. `MAX_PRICE = 1000` (previous close; also on the Settings page) |
 | `STRATEGIES` | see [Strategies](#strategies-and-the-setup-score) | change a strategy's thresholds, switch it off, or make a gate optional when its data is missing |
 | `SCORE_WEIGHTS`, `SCORE_BOUNDS` | 20/20/15/15/10/10/5/5 | reweight the setup score, or change where a component scores full points |
 | `CANDIDATE_GRACE_MINUTES` | 10 | how long a candidate may stop qualifying before it's removed |
@@ -246,7 +250,8 @@ Every formula and threshold is explained in [technical_indicators_calculations.m
 | What you see | What to do |
 |---|---|
 | `DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN must be set` | `.env` is missing or empty (step 4), or run `--demo` |
-| Red banner: *credentials rejected* / *access token expired* | generate a new token, update `.env`, restart |
+| Red banner: *credentials rejected* / *access token expired* | generate a new token and put it in `.env`; the running app loads it within a minute |
+| Red banner: *access-token renewal failed* | it retries every 5 min until the token expires; check the network, or put a fresh token in `.env` |
 | Error `806` / *Data APIs not subscribed* | your Data API subscription isn't active |
 | `Address already in use` | the app is already running, or pick another port: `--port 8060` |
 | Symbols listed under *Data errors* | fix the spelling or add an override (step 9) |
@@ -357,8 +362,8 @@ real history. `--no-db` turns the database off.
 Build a longer history with `history.py`:
 
 ```bash
-.venv/bin/python history.py backfill                       # 1 year of 5-min + 5 years of daily: watchlist, NIFTY 50, sector indices
-.venv/bin/python history.py backfill --days 730 --interval 5 15
+.venv/bin/python history.py backfill --watchlist nifty50.txt   # 1 year of 5-min + 5 years of daily: NIFTY 50 stocks, NIFTY 50, sector indices
+.venv/bin/python history.py backfill --watchlist nifty50.txt --days 730 --interval 5 15
 .venv/bin/python history.py status                         # rows and date range per symbol
 .venv/bin/python history.py export RELIANCE --interval 5 --from 2026-01-01 --out reliance_5m.csv
 .venv/bin/python history.py export "NIFTY 50" --interval D
@@ -369,8 +374,10 @@ Build a longer history with `history.py`:
   part-way (network error, expired token), run it again to continue. The `coverage` table records
   the ranges already requested, so weekends and holidays aren't requested again.
 - **Cost.** Dhan serves at most 90 days of intraday data per request and about 5 years in total.
-  One year of 5-min plus five years of daily candles for 51 series is about 360 requests
-  (around 1.5 minutes at 4 requests a second) and about 80 MB. 1-min candles are 5× larger, so keep long backfills at 5-min.
+  One year of 5-min plus five years of daily candles for the 61 series of `--watchlist nifty50.txt` (50 stocks,
+  NIFTY 50, 10 sector indices) is about 430 requests (around 2 minutes at 4 requests a second) and about 90 MB.
+  **Without `--watchlist`, backfill uses `watchlist.csv`: all ~3,200 stocks, about 22,000 requests (1.5 hours)**,
+  so pass a watchlist unless you mean it. 1-min candles are 5× larger, so keep long backfills at 5-min.
 - **Timing.** Run backfills outside market hours, or before starting the dashboard, so the two
   don't compete for Dhan's rate limit. The database itself handles both running at once.
 - **Explore with SQL.** macOS includes `sqlite3`, and the `v_candles` view adds the symbol to each candle:
@@ -390,7 +397,7 @@ Build a longer history with `history.py`:
 |---|---|
 | **Header** | market phase and IST clock, NIFTY 50 level and change, breadth, *live push* / *polling* badge, Dhan feed state and last tick (live-feed mode), DATA STALE / FEED DISCONNECTED, 🔔 unread alerts |
 | **Sector strength** | each sector's index value (where it has one), day %, RS vs NIFTY 50 for 5/15/30/60 min and the day, state and rank. Sortable |
-| **Filter bar** | sector, strategy, minimum setup score, minimum Day RVOL, direction (vote bias). Applies to the candidate and vote tables; remembered in this browser |
+| **Filter bar** | sector, strategy, minimum setup score, minimum Day RVOL, **Chg % from … to …** (change today vs the previous close), direction (vote bias). Applies to the candidate and vote tables. The Chg % band is checked on the server across every stock before the tables are cut to their row limit, and saved as a setting (`TABLE_CHG_PCT_MIN` / `MAX`); the others are remembered in this browser and filter the rows already on the page |
 | **Tabs** | All candidates · Strong Momentum · Early Breakout · Sector Leaders · Bullish / Bearish (votes) · Alert history |
 | **Tables** | click a header to sort (again to reverse, a third time for the default order); rows are updated in place, NEW / weakening / removed candidates are marked, rows with a fresh alert are highlighted |
 | **Stock detail** (click a row) | 1m / 5m / 15m candles with VWAP, EMA 9 / 20, opening range and PDH / PDL lines, volume, MACD, RSI and ADX panels with a crosshair readout; quote; every strategy gate and score component; stock vs sector vs NIFTY returns per horizon; RVOL with its baseline; indicators; levels; today's alerts for the stock; data quality. Link to it with `#stock=SYMBOL` |
@@ -432,7 +439,8 @@ only from its own page. `GET /health` returns `ok` or `degraded` (HTTP 503) for 
 
 ## Strategies and the setup score
 
-After the hard filters (turnover ≥ ₹100 cr, ATR ≥ 1.5%, EQ series, optional `MIN_PRICE`), every stock
+After the hard filters (ATR ≥ 1.5%, EQ series, the optional turnover minimum `MIN_AVG_TURNOVER_CR`, the optional price band `MIN_PRICE` /
+`MAX_PRICE`), every stock
 with intraday indicators is checked against three independent strategies from the spec. Each has its own
 settings in `config.STRATEGIES` and its own reason codes, and a stock can qualify for several:
 
@@ -496,7 +504,9 @@ number of votes plus two strength checks: **ADX ≥ 20** (a real trend, not chop
 score, then ADX, and the top 5 are marked **TOP**.
 
 Stocks go to *Neutral & filtered* when their votes are mixed, or when they fail the
-tradability filters: 20-day average turnover below ₹100 crore, or 14-day ATR below 1.5% of price.
+tradability filters: 14-day ATR below 1.5% of price, 20-day average turnover below `MIN_AVG_TURNOVER_CR` (off by default),
+or when they're outside the optional price band (`MIN_PRICE` / `MAX_PRICE`, judged on the previous
+close). Stocks outside the band also get no volume-spike or breakout alerts.
 
 ## Alert centre
 
@@ -644,7 +654,7 @@ assumptions, not a prediction, and it never places orders.**
 **What you need first.** At least 11 sessions of 5-min candles for the stocks, NIFTY 50 and the NSE
 sector indices (RVOL compares with 10 earlier sessions; sector RS needs the index candles). Your
 database starts with what the dashboard has cached. For a meaningful test, fetch more once, outside
-market hours: `.venv/bin/python history.py backfill --days 180` (watchlist, NIFTY 50 and the 10 sector
+market hours: `.venv/bin/python history.py backfill --watchlist nifty50.txt --days 180` (the NIFTY 50 stocks, NIFTY 50 and the 10 sector
 indices; about 300 Dhan requests, around 2 minutes). Without index candles, Strong Momentum and Sector Leaders
 can't qualify, and the report says so. `--fetch` makes `backtest.py` fill gaps from Dhan itself.
 
@@ -712,6 +722,52 @@ Treat each value as a hypothesis to test, not a rule.
 - The alert thresholds, scopes and cooldowns are first guesses. Expect to tune them after a few live
   sessions (`ALERT_RULES`).
 
+## Access-token auto-renewal
+
+Dhan access tokens last 24 hours. Dhan's `RenewToken` call swaps a token that's **still valid** for a
+new 24-hour one and expires the old one at once. The app makes that call itself
+(`screener/token_manager.py`, live mode only) and switches to the new token without a restart: the REST
+client, the live feed (it reconnects in about a second), log masking and `.env` all get it.
+
+**When it renews** (IST, every day; change it on the Settings page under *Access token*, or in `config.py`):
+
+| Rule | Setting | Default |
+|---|---|---|
+| At each of these times, if the token is at least an hour old | `TOKEN_RENEW_TIMES`, `TOKEN_RENEW_MIN_AGE_MINUTES` | 08:00 and 15:40; 60 min |
+| When the app starts, if less than this is left | `TOKEN_RENEW_ON_START_HOURS_LEFT` | 12 hours |
+| When the app stops (Ctrl+C), so the next start has about 24 hours | `TOKEN_RENEW_ON_EXIT` | on |
+| At any time, when less than this is left (a missed schedule) | `TOKEN_RENEW_SAFETY_MINUTES` | 60 min |
+| After a failure, until the token expires | `TOKEN_RENEW_RETRY_MINUTES` | every 5 min |
+| All of the above | `TOKEN_AUTO_RENEW` | on |
+
+A time missed while the computer slept is caught up when it wakes. Times before the app started aren't
+(the startup rule covers those).
+
+**What that means in practice**
+
+- **App left running:** fully automatic.
+- **Started every trading morning, stopped after the close:** automatic. The renewal when you stop it
+  carries the token to the next morning, and the start renews it again.
+- **A weekend or holiday with the app stopped** (or the computer off for more than a day): the token
+  expires and Dhan won't renew an expired token. Generate a new one on web.dhan.co and put it in `.env`.
+
+**Where to see it:** the header's **token … left** badge (hover for the plan and the last result), the
+*Access token* panel on the Settings page (with **Renew now**), `/api/token`, `/health`, and alerts of
+type *Access token*: LOW when it's renewed, CRITICAL when a renewal fails, the token expires, or the
+new token couldn't be saved to `.env`.
+
+**Things to know**
+
+- Renewing expires the old token **everywhere**. A `history.py` or `backtest.py` still running with it
+  fails; they read `.env` when they start, so run them again. Use one renewal mechanism only; a second
+  one (a cron job, another copy of the app) would expire this app's token.
+- `.env` is rewritten safely (temporary file, then swapped in) with mode 600; other lines are kept. The
+  token is never logged or sent to the browser. An environment variable `DHAN_ACCESS_TOKEN` overrides
+  `.env` when the app starts, so don't set one if you use auto-renewal.
+- Dhan's docs say `RenewToken` works for tokens generated on Dhan Web. They don't show the reply format
+  (the app accepts the likely field names) or say whether a renewed token can be renewed again (forum
+  users say it can). The first real renewal confirms both: check the *Access token* alert.
+
 ## Operations, diagnostics and security
 
 - **[docs/OPERATIONS.md](docs/OPERATIONS.md):** the daily routine, `manage.py check` diagnostics, the
@@ -761,6 +817,7 @@ screener/settings.py    editable-settings schema, validation, live apply, data/s
 screener/market_calendar.py  trading days, holidays, special sessions, market phase
 screener/clock.py       the IST clock (independent of the computer's timezone)
 screener/logs.py        console + JSON-lines logging, correlation ids, secret redaction
+screener/token_manager.py  access-token auto-renewal: schedule, RenewToken call, .env rewrite, hot swap
 screener/backtest.py    causal features, candle-close replay, trade simulation, costs, metrics, reports
 static/index.html       dashboard page; static/css/app.css; static/js/app.js (state, tables, alerts, detail)
 static/js/chart.js      SVG candle / MACD / RSI / ADX chart for the detail panel

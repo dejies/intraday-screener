@@ -22,7 +22,7 @@ For development, `pip install -e ".[test]"` also installs the commands `screener
 
 | When (IST) | What | Command |
 |---|---|---|
-| Before 08:45 | New access token if yesterday's expired (`manage.py check` shows the expiry) | edit `.env` |
+| Before 08:45 | Only after a day or more with the app stopped: new access token if it expired (the app renews it otherwise; `manage.py check` shows the expiry) | edit `.env` |
 | 08:30 (all-NSE mode) | Daily candles for every stock | `history.py backfill --universe nse --daily-only` |
 | 08:45–09:10 | Check, then start | `scripts/start.sh` |
 | 09:15–15:30 | Watch; the 🔔 badge and CRITICAL toasts flag problems | dashboard |
@@ -106,7 +106,10 @@ schema upgrades itself if the backup is from an older version.
 
 | Symptom | What happens automatically | What to do |
 |---|---|---|
-| Dhan rejects the token (HTTP 401/403, or the feed's invalid-token disconnect) | CRITICAL **Credentials** alert; red banner; polling slows | new token in `.env`, restart |
+| Dhan rejects the token (HTTP 401/403, or the feed's invalid-token disconnect) | CRITICAL **Credentials** alert; red banner; polling slows | new token in `.env`: the running app loads it within a minute and restarts the feed |
+| Token about to expire | renewed at the scheduled times, at startup / exit, and as a safety net in its last hour (README, *Access-token auto-renewal*) | nothing |
+| Token renewal fails | CRITICAL **Access token** alert; retried every 5 min until the token expires | check the network; if it keeps failing, a new token in `.env` |
+| Renewed but `.env` couldn't be written | CRITICAL alert; the new token works until the app stops | fix the file permissions, then **Renew now** on the Settings page |
 | Live feed disconnects | reconnects with backoff (1 s → 30 s); CRITICAL alert after 10 s, LOW when back | nothing, unless it keeps failing: check the network and `manage.py check` |
 | Feed connected but silent while open | DATA STALE + CRITICAL after 10 s; **forced reconnect** after 60 s (`FEED_RECONNECT_STALE_SECONDS`), at most once a minute | if it repeats, restart; check Dhan's status |
 | REST price / candle calls fail | the loop keeps running; one MEDIUM *Data error* alert counts the repeats; stale prices go CRITICAL | check network / rate limits; errors panel lists the details |
@@ -124,6 +127,7 @@ schema upgrades itself if the backup is from an older version.
 | Restart mid-day restores alerts, acknowledgements, candidates; no duplicate events | `test_screener.py::test_alerts_saved_and_restored_after_restart`, `test_strategies.py::test_restart_restores_candidates_without_duplicate_events`, `test_alerts.py::test_persist_restore_ack_and_bump` |
 | Engine loop survives failing data calls and recovers | `test_hardening.py::test_engine_loop_survives_data_failures_and_recovers` |
 | Feed disconnect / reconnect, token-expiry disconnect | `test_live.py::test_dhan_feed_over_a_real_websocket_connection` (fake server) |
+| Token renewal: schedule, retries, `.env` rewrite, hot swap, feed restart, `.env` edited by hand | `test_token.py` |
 | Silent feed is reconnected, once per interval | `test_hardening.py::test_feed_watchdog_forces_one_reconnect_per_interval`, `…force_reconnect_closes_the_socket` |
 | Feed / stale / recovery alerts | `test_alerts.py::test_feed_monitor_waits_then_recovers`, `…test_engine_flags_stale_rest_prices` |
 | Old databases upgrade in place | `test_alerts.py::test_schema_v6_upgrade_keeps_old_alerts`, `test_strategies.py::test_schema_upgrade_and_prune` |
@@ -135,24 +139,27 @@ schema upgrades itself if the backup is from an older version.
 **Manual checks on the first live day** (they need the real Dhan feed, which tests can't reach): start
 before 09:15 and confirm the feed badge turns *live*; pull the network cable or turn off Wi-Fi for 30 s and
 confirm the CRITICAL alert, the reconnect and the LOW *recovered* alert; restart `app.py` at 11:00 and
-confirm the alert centre and candidates come back without new toasts.
+confirm the alert centre and candidates come back without new toasts. After the close, click **Renew now**
+on the Settings page once: confirm the LOW *Token renewed* alert, the new expiry, that `.env` changed, and
+that the feed badge goes back to *live* within a few seconds (this is the first real `RenewToken` call).
 
 ## 8. Troubleshooting
 
 | Problem | Likely cause | Fix |
 |---|---|---|
-| "Dhan rejected the credentials" | token expired (~24 h) | new token at web.dhan.co, update `.env`, restart |
+| "Dhan rejected the credentials" / "token expired" | the app was stopped for over a day, or renewal failed | new token at web.dhan.co, put it in `.env` (picked up within a minute) |
+| A `history.py` / `backtest.py` run fails with an auth error | the app renewed the token while it ran | run it again (it reads `.env` at start) |
 | Nothing updates, "NSE holiday" in the header | exchange holiday | nothing; the tables show the last session |
 | DATA STALE during market hours | network, Dhan outage, or (live feed) a holiday missing from the calendar | check the network; `manage.py check`; add the holiday |
-| Strong Momentum / Sector Leaders never qualify | sector RS unavailable: composite sector with < 3 liquid stocks, or no index data | normal for small watchlists; in backtests run `history.py backfill` (fetches index candles) |
-| Day RVOL shows "—" | fewer than 10 earlier sessions of 5-min candles | wait, or `history.py backfill --days 60` |
+| Strong Momentum / Sector Leaders never qualify | sector RS unavailable: composite sector with < 3 liquid stocks, or no index data | normal for small watchlists; in backtests run `history.py backfill --watchlist nifty50.txt` (fetches index candles too) |
+| Day RVOL shows "—" | fewer than 10 earlier sessions of 5-min candles | wait, or `history.py backfill --watchlist nifty50.txt --days 60` |
 | Toasts but no sound | browsers block audio until you click | click **Sound** once after each page load |
 | No desktop notifications | permission not granted, or the tab is in front | allow notifications; they're sent while the tab is in the background |
 | Page shows "polling" instead of "live push" | the WebSocket was refused or dropped | it falls back to polling automatically; check that you opened `127.0.0.1:8050`, not another host name |
 | `manage.py check` warns about `.env` permissions | the file is readable by other users | `chmod 600 .env` |
 | `address already in use` | another app on port 8050 | `--port 8060` |
 | Settings change has no effect | it needs a restart (marked *restart*) | restart `app.py` |
-| A backtest has no testable sessions | fewer than 11 sessions of 5-min candles | `history.py backfill --days 120` |
+| A backtest has no testable sessions | fewer than 11 sessions of 5-min candles | `history.py backfill --watchlist nifty50.txt --days 120` |
 
 Still stuck: run `manage.py check`, look at `logs/screener.jsonl` around the time it happened (filter by
 `run_id` or `request_id`), and check the *Data errors* panel at the bottom of the dashboard.

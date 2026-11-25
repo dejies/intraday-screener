@@ -101,7 +101,7 @@ calculated, which candles it uses, and how it feeds the bullish/bearish lists an
 | Market breadth | live | — | header breadth badge | `market_breadth()` |
 | Strategies (MOM, BRK, LDR) | all of the above | `STRATEGIES` | strategy tabs, tags, candidate lifecycle | `strategies.evaluate()` |
 | Setup score | all of the above | 100 points, 8 components | candidate ranking, Setup score column | `scoring.setup_score()` |
-| Average turnover | daily | 20 days | filter (≥ ₹100 cr) | `compute_daily_stats()` |
+| Average turnover | daily | 20 days | optional filter (`MIN_AVG_TURNOVER_CR`, off by default) | `compute_daily_stats()` |
 | Day RVOL (cumulative) | 5-min | previous 20 sessions, min 10 | strength point (≥ 1.5×), confirmation | `cumulative_rvol()` |
 | 5m RVOL (same slot) | 5-min | previous 20 sessions, min 10 | RVOL day · 5m column | `slot_rvol()` |
 | Bar RVOL | 1-min | 20 candles | ⚡ alert (> 2.5×), Bar RVOL column | `bar_rvol_series()`, `bar_rvol_recent()` |
@@ -648,7 +648,10 @@ average turnover (cr) = mean(daily turnover, last 20 sessions) / 1,00,00,000
 **Example:** close ₹1,500 × 12,00,000 shares = ₹180 crore that day. The average of the last 20 days is
 the value shown.
 
-**How it's used:** it's a filter. Below **₹100 crore** a stock is too illiquid for intraday and goes to *Neutral & filtered*.
+**How it's used:** an optional filter. With `MIN_AVG_TURNOVER_CR` above 0, a stock below it is treated as too
+illiquid for intraday and goes to *Neutral & filtered*. The default is **0: no turnover filter**, so thinly
+traded stocks are screened too (their buy/sell gaps can be wide). The value is still shown in the row
+tooltip, and it orders the stocks for the full-indicator scan in all-NSE mode (most traded first).
 
 ---
 
@@ -885,12 +888,20 @@ Bullish (4 votes), with a score of **5/9**.
 | Filter | Rule |
 |---|---|
 | Daily history | loaded (turnover known), with at least 14 daily candles so ATR exists |
-| Liquidity | average turnover ≥ ₹100 crore (§13) |
+| Liquidity (optional) | average turnover ≥ `MIN_AVG_TURNOVER_CR` (§13); 0 = off, the default |
 | Volatility | ATR % ≥ 1.5 (§6) |
 | Series | in `INTRADAY_SERIES` (EQ). BE/BZ are trade-for-trade and SM/ST/SZ are SME, so they're tagged and filtered. |
-| Price (optional) | LTP ≥ `MIN_PRICE` (off by default) |
+| Price band (optional) | previous close ≥ `MIN_PRICE` and ≤ `MAX_PRICE` (each off at 0, the default) |
 
 These are also the **hard filters** of the strategies (§19): a stock that fails one is not evaluated.
+
+The price band uses the **previous close**, not the live price, so it decides once which stocks are
+screened that day: a stock that closed at ₹990 and rallies to ₹1,050 stays in with `MAX_PRICE = 1000`,
+and one that closed at ₹1,010 stays out even if it falls below ₹1,000. (The live price is used only
+while a stock has no previous close.) Unlike the other filters, the band also applies to alerts:
+stocks outside it get no ⚡ volume-spike alerts and no breakout alerts, even with
+`BREAKOUT_ALERTS_REQUIRE_FILTERS` off, and in all-NSE mode they don't take full-scan slots
+(`DEEP_SCAN_MAX`), which go to the most liquid stocks inside the band.
 
 ### 18.4 Ranking
 
@@ -905,7 +916,7 @@ The spec's three scanner strategies (§5 of the spec) and its 100-point ranking 
 `screener/strategies.py`, `screener/scoring.py`, `screener/candidates.py`; every threshold is in
 `STRATEGIES` and `SCORE_*` in `config.py`.
 
-**Order of work:** hard filters first (turnover, ATR, series, and the optional `MIN_PRICE`; §18.3), then
+**Order of work:** hard filters first (turnover, ATR, series, and the optional price band `MIN_PRICE` / `MAX_PRICE`; §18.3), then
 the three strategies and the setup score for every stock that passes **and** has intraday indicators.
 A stock can qualify for more than one strategy. Each strategy result is one of:
 
@@ -1391,7 +1402,7 @@ All in `config.py`:
 | `DAILY_ATR_PERIOD` | 14 | daily ATR period |
 | `MIN_ATR_PCT` | 1.5 | volatility filter (%) |
 | `AVG_TURNOVER_DAYS` | 20 | turnover average window |
-| `MIN_AVG_TURNOVER_CR` | 100 | liquidity filter (₹ crore) |
+| `MIN_AVG_TURNOVER_CR` | 0 (off) | liquidity filter (₹ crore); 0 = no turnover filter |
 | `OPENING_RANGE_MIN` | 15 | opening range length |
 | `RS_MIN_PCT` | 0.2 | relative-strength vote threshold |
 | `RVOL_LOOKBACK_SESSIONS` | 20 | Day RVOL baseline sessions |
@@ -1438,7 +1449,7 @@ All in `config.py`:
 | `OBV_TREND_BARS` | 10 | OBV trend window |
 | `SAVE_INDICATOR_SNAPSHOTS` | True | save each completed 5-min evaluation to SQLite |
 | `STRATEGIES` | see §19.1–19.3 | per strategy: `enabled`, thresholds, `rs_horizon`, `skip_if_missing` |
-| `MIN_PRICE` | 0 (off) | optional hard filter on LTP (₹) |
+| `MIN_PRICE`, `MAX_PRICE` | 0, 0 (off) | optional price band on the previous close (₹); also silences alerts outside it (§18.3) |
 | `CONSOLIDATION_BARS`, `CONSOLIDATION_MAX_ATR_MULT` | 12, 3.0 | consolidation-high window and how tight it must be |
 | `SCORE_WEIGHTS` | 20/20/15/15/10/10/5/5 | setup-score component weights |
 | `SCORE_BOUNDS` | see §19.5 | where each component scores 0 and full points |

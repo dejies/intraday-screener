@@ -738,7 +738,7 @@ def report_markdown(rep: dict) -> str:
     if rep.get("coverage", {}).get("indices_without_5min"):
         L += [f"**Data gap:** no 5-min candles for {', '.join(rep['coverage']['indices_without_5min'])}: sector RS for those "
               "sectors (and RS vs NIFTY, if NIFTY 50 is listed) is unavailable, which blocks Strong Momentum and Sector "
-              "Leaders there. Run `history.py backfill` to fetch them.", ""]
+              "Leaders there. Run `history.py backfill --watchlist nifty50.txt` to fetch them.", ""]
     for v in rep["variants"]:
         L += [f"## Variant: {v['name']}", "", f"Changes: `{json.dumps(v['changes']) if v['changes'] else 'none'}` · "
               f"{v['signals']} signals, {v['trades']} trades", "",

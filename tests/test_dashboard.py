@@ -87,7 +87,11 @@ def test_broadcaster_hands_out_only_the_newest_state():
 # --------------------------------------------------------------------------- settings
 def test_schema_has_no_secrets_or_paths():
     keys = [f["key"] for f in st.FIELDS]
-    assert not [k for k in keys if "DHAN" in k or "TOKEN" in k or "PATH" in k or "FILE" in k or k == "WS_URL"]
+    assert not [k for k in keys if "DHAN" in k or "PATH" in k or "FILE" in k or "URL" in k]
+    # The renewal *schedule* is editable; the token and where it's sent (TOKEN_RENEW_URL) never are.
+    assert {k for k in keys if "TOKEN" in k} == {"TOKEN_AUTO_RENEW", "TOKEN_RENEW_TIMES", "TOKEN_RENEW_ON_EXIT",
+                                                 "TOKEN_RENEW_ON_START_HOURS_LEFT", "TOKEN_RENEW_SAFETY_MINUTES",
+                                                 "TOKEN_RENEW_MIN_AGE_MINUTES", "TOKEN_RENEW_RETRY_MINUTES"}
     cfg = ns()
     cfg.DHAN_ACCESS_TOKEN, cfg.DHAN_CLIENT_ID = "SECRET-TOKEN-123", "CLIENT-987"
     sch = st.schema(cfg, st.capture_defaults(cfg))

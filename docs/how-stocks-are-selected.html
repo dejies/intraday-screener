@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Stocks Are Picked</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1c2430; --muted: #5d6877; --border: #e2e6ec;
+    --accent: #2f6fdf; --accent-soft: #e8f0fd; --up: #13804a; --up-soft: #e6f5ec; --down: #c2382f;
+    --warn: #9a6400; --warn-soft: #fdf3df; --bar: #2f6fdf; --bar2: #93b4ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161c; --panel: #1a2029; --text: #e3e8ef; --muted: #98a3b3; --border: #2b3340;
+      --accent: #6d9cf0; --accent-soft: #1e2a3d; --up: #4cc283; --up-soft: #17301f; --down: #f07a70;
+      --warn: #e3b25a; --warn-soft: #33290f; --bar: #6d9cf0; --bar2: #35507f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; }
+  h2 { font-size: 19px; margin: 0 0 4px; }
+  h3 { font-size: 15px; margin: 14px 0 6px; }
+  p { margin: 8px 0; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  .step { display: grid; grid-template-columns: 42px 1fr; gap: 14px; }
+  .num { width: 36px; height: 36px; border-radius: 50%; background: var(--accent-soft); color: var(--accent);
+    font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .when { display: inline-block; font-size: 12px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px;
+    padding: 1px 9px; margin-left: 6px; vertical-align: 2px; white-space: nowrap; }
+  .muted { color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; margin: 8px 0; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  .yours { font-weight: 700; color: var(--accent); white-space: nowrap; }
+  .off { color: var(--muted); font-weight: 600; }
+  ul, ol { margin: 6px 0; padding-left: 22px; }
+  li { margin: 3px 0; }
+  .note { background: var(--warn-soft); border-radius: 8px; padding: 10px 12px; font-size: 14.5px; margin-top: 10px; }
+  .good { background: var(--up-soft); border-radius: 8px; padding: 10px 12px; font-size: 14.5px; margin-top: 10px; }
+
+  /* funnel */
+  .funnel { margin: 10px 0 2px; }
+  .frow { display: grid; grid-template-columns: minmax(150px, 34%) 1fr 64px; gap: 10px; align-items: center; margin: 7px 0; font-size: 14px; }
+  .ftrack { background: var(--accent-soft); border-radius: 6px; height: 22px; overflow: hidden; }
+  .fbar { height: 100%; background: var(--bar); border-radius: 6px; min-width: 4px; }
+  .fbar.view { background: var(--bar2); }
+  .fcount { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .flabel small { display: block; color: var(--muted); font-size: 12px; }
+
+  /* strategies */
+  .strats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 10px; }
+  .strat { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .strat .tag { display: inline-block; font-size: 12px; font-weight: 700; border-radius: 6px; padding: 1px 7px;
+    background: var(--accent-soft); color: var(--accent); margin-right: 6px; }
+  .strat ul { padding-left: 18px; font-size: 14px; }
+  .strat p { font-size: 14px; color: var(--muted); }
+
+  /* votes */
+  .votes { counter-reset: v; list-style: none; padding: 0; }
+  .votes li { counter-increment: v; padding-left: 30px; position: relative; }
+  .votes li::before { content: counter(v); position: absolute; left: 0; top: 1px; width: 21px; height: 21px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+
+  /* lifecycle */
+  .life { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; font-size: 14px; }
+  .chip { border-radius: 999px; padding: 3px 11px; border: 1px solid var(--border); background: var(--panel); white-space: nowrap; }
+  .chip.new { background: var(--up-soft); color: var(--up); border-color: transparent; font-weight: 600; }
+  .chip.weak { background: var(--warn-soft); color: var(--warn); border-color: transparent; font-weight: 600; }
+  .chip.gone { color: var(--muted); text-decoration: line-through; }
+  .arrow { color: var(--muted); }
+
+  footer { color: var(--muted); font-size: 13px; margin-top: 26px; text-align: center; }
+  code { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+
+  @media (max-width: 720px) {
+    h1 { font-size: 23px; }
+    .strats { grid-template-columns: 1fr; }
+    .frow { grid-template-columns: 1fr 52px; }
+    .frow .ftrack { grid-column: 1 / -1; grid-row: 2; }
+    .step { grid-template-columns: 1fr; gap: 6px; }
+    .card { padding: 15px 14px; }
+    table { font-size: 13.5px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>How the screener picks stocks</h1>
+  <p class="sub">Every check, in the order it runs, in plain English. Each step only looks at the stocks that
+    survived the one before. Numbers and settings are yours as of the close on 25 Nov 2026.</p>
+
+  <section class="card">
+    <h2>The funnel at a glance</h2>
+    <p class="muted">How many of the 3,226 NSE stocks were left after each step (25 Nov, after the close).</p>
+    <div class="funnel">
+      <div class="frow"><div class="flabel">All NSE stocks in the list</div><div class="ftrack"><div class="fbar" style="width:100%"></div></div><div class="fcount">3,226</div></div>
+      <div class="frow"><div class="flabel">Known to Dhan</div><div class="ftrack"><div class="fbar" style="width:99.6%"></div></div><div class="fcount">3,213</div></div>
+      <div class="frow"><div class="flabel">Enough price history<small>at least 14 days</small></div><div class="ftrack"><div class="fbar" style="width:98.9%"></div></div><div class="fcount">3,189</div></div>
+      <div class="frow"><div class="flabel">Normal "EQ" shares</div><div class="ftrack"><div class="fbar" style="width:74.7%"></div></div><div class="fcount">2,411</div></div>
+      <div class="frow"><div class="flabel">Usually move ≥ 1.5% a day</div><div class="ftrack"><div class="fbar" style="width:74.7%"></div></div><div class="fcount">2,409</div></div>
+      <div class="frow"><div class="flabel">Closed at ₹1,000 or less<small>yesterday's close</small></div><div class="ftrack"><div class="fbar" style="width:61.3%"></div></div><div class="fcount">1,976</div></div>
+      <div class="frow"><div class="flabel">Get the full indicator scan<small>the 500 most traded</small></div><div class="ftrack"><div class="fbar" style="width:15.5%"></div></div><div class="fcount">500</div></div>
+      <div class="frow"><div class="flabel">Bullish or bearish by the votes<small>81 bullish · 235 bearish</small></div><div class="ftrack"><div class="fbar" style="width:9.8%"></div></div><div class="fcount">316</div></div>
+      <div class="frow"><div class="flabel">Strategy candidates<small>passed every check of a strategy</small></div><div class="ftrack"><div class="fbar" style="width:0.1%"></div></div><div class="fcount">3</div></div>
+    </div>
+    <p class="muted" style="font-size:13.5px">Counts move during the day as prices, votes and strategies change. After the close, Early
+      Breakout can't qualify, so the candidate list is at its smallest.</p>
+  </section>
+
+  <section class="card step">
+    <div class="num">1</div>
+    <div>
+      <h2>The stock list <span class="when">when the app starts</span></h2>
+      <p>The screener starts from <code>watchlist.csv</code>, every stock listed on NSE (3,226). It drops the 13 that
+        Dhan doesn't recognise and gets <strong>live prices</strong> for the remaining 3,213 from Dhan's feed.</p>
+    </div>
+  </section>
+
+  <section class="card step">
+    <div class="num">2</div>
+    <div>
+      <h2>Yesterday's numbers <span class="when">once a day, at start</span></h2>
+      <p>For each stock it loads about a year of daily prices and works out:</p>
+      <ul>
+        <li>yesterday's close, high and low, and the 52-week high and low;</li>
+        <li><strong>how much it usually moves in a day</strong> (the ATR %, averaged over 14 days);</li>
+        <li><strong>how much money it usually trades</strong> (turnover, averaged over 20 days).</li>
+      </ul>
+      <p class="muted">A stock with less than two days of history (a brand-new listing) waits here.</p>
+    </div>
+  </section>
+
+  <section class="card step">
+    <div class="num">3</div>
+    <div>
+      <h2>Hard filters <span class="when">re-checked every 2 seconds</span></h2>
+      <p>A stock must pass <strong>all</strong> of these. If it fails one, it goes to <em>Neutral &amp; filtered</em> with the reason, and stops here.</p>
+      <table>
+        <tr><th>Rule</th><th>Your setting</th></tr>
+        <tr><td>It's a normal "EQ" share (not trade-for-trade or a small-company SME share)</td><td class="yours">EQ only</td></tr>
+        <tr><td>It has enough history to know its typical daily movement</td><td class="yours">14 days</td></tr>
+        <tr><td>It usually moves at least this much in a day</td><td class="yours">1.5%</td></tr>
+        <tr><td>Yesterday's closing price is at most</td><td class="yours">₹1,000</td></tr>
+        <tr><td>It usually trades at least this much money a day</td><td class="off">off</td></tr>
+      </table>
+      <p class="muted" style="font-size:14px">The price limit uses <em>yesterday's</em> close, so the list stays fixed all day: a ₹990 stock that rallies to ₹1,050 stays in.</p>
+    </div>
+  </section>
+
+  <section class="card step">
+    <div class="num">4</div>
+    <div>
+      <h2>Full indicator scan <span class="when">every 5 minutes</span></h2>
+      <p>Of the stocks that passed, the <strong>500 most traded</strong> get 5-minute charts and every indicator:
+        MACD, RSI, ADX, the moving averages (EMAs), VWAP and today's relative volume (RVOL).</p>
+      <p>Only <strong>finished</strong> 5-minute candles are used, so the numbers don't jump around while a candle is still forming.
+        Stocks outside the 500 still get live prices, but not the strategy checks.</p>
+    </div>
+  </section>
+
+  <section class="card step">
+    <div class="num">5</div>
+    <div>
+      <h2>Votes → Bullish, Bearish or Neutral <span class="when">every 2 seconds</span></h2>
+      <p>Seven yes/no questions. Each one votes "up", "down", or not at all:</p>
+      <ol class="votes">
+        <li>Is the price above or below the day's average traded price (VWAP)?</li>
+        <li>Is MACD above or below its signal line?</li>
+        <li>Are buyers or sellers pushing harder (+DI vs −DI)?</li>
+        <li>Is the stock beating or trailing the NIFTY 50 by at least 0.2%?</li>
+        <li>Has the price broken above the first 15 minutes' high, or below their low?</li>
+        <li>Are the 5-minute moving averages lined up upward or downward?</li>
+        <li>Are the daily moving averages lined up upward or downward?</li>
+      </ol>
+      <div class="good"><strong>4 or more "up" votes, and more up than down → Bullish.</strong> The same rule with "down" votes → Bearish.
+        Anything else → Neutral.</div>
+      <p class="muted" style="font-size:14px">Two bonus points measure strength: a real trend (ADX ≥ 20) and above-normal volume today (Day RVOL ≥ 1.5×).
+        Votes plus bonus points give the score out of 9 on the <em>Bullish / Bearish</em> tab.</p>
+    </div>
+  </section>
+
+  <section class="card step">
+    <div class="num">6</div>
+    <div>
+      <h2>Strategy checks → MOM, BRK, LDR <span class="when">every 2 seconds</span></h2>
+      <p>Every stock from step 4 is checked against three strategies. It qualifies for a strategy only if
+        <strong>every one</strong> of that strategy's checks passes. One "no" is enough to miss.</p>
+      <div class="strats">
+        <div class="strat">
+          <h3><span class="tag">MOM</span>Strong Momentum</h3>
+          <p>Already rising strongly, with its sector behind it.</p>
+          <ul>
+            <li>Volume today over <strong>2.5×</strong> normal</li>
+            <li>Its sector is beating NIFTY</li>
+            <li>The stock is beating its sector</li>
+            <li>MACD above zero and still growing</li>
+            <li>Price above VWAP, and holding there</li>
+            <li>RSI above 50</li>
+            <li>A real uptrend (ADX above 20, buyers stronger)</li>
+          </ul>
+        </div>
+        <div class="strat">
+          <h3><span class="tag">BRK</span>Early Breakout</h3>
+          <p>Just broke a key price level on heavy volume.</p>
+          <ul>
+            <li>Volume today over <strong>2×</strong> normal</li>
+            <li>In the <strong>last 30 minutes</strong>, a 5-min candle closed above the first-15-min high, yesterday's high, or the top of a tight 1-hour range</li>
+            <li>That candle had over 2× the usual volume for that time of day</li>
+            <li>RSI above 50, or rising</li>
+            <li>MACD turning up or strengthening</li>
+            <li>ADX rising</li>
+          </ul>
+        </div>
+        <div class="strat">
+          <h3><span class="tag">LDR</span>Sector Leaders</h3>
+          <p>The best stock in a strong sector.</p>
+          <ul>
+            <li>Its sector is beating NIFTY</li>
+            <li>The stock is beating its sector</li>
+            <li>In the <strong>top 10%</strong> of its sector today</li>
+            <li>Volume today over <strong>2.5×</strong> normal</li>
+            <li>Price above VWAP</li>
+            <li>Short-term uptrend (EMA 9 above EMA 20)</li>
+          </ul>
+        </div>
+      </div>
+      <div class="note">All three look for stocks going <strong>up</strong>. On a falling day, few qualify.
+        On 25 Nov, the check that stopped most stocks was "volume over 2.5× normal" (187 of 201 stocks checked).</div>
+    </div>
+  </section>
+
+  <section class="card step">
+    <div class="num">7</div>
+    <div>
+      <h2>Setup score, 0 to 100 <span class="when">with each check</span></h2>
+      <p>Each candidate gets a score to rank it against the others:</p>
+      <table>
+        <tr><th>Part</th><th>Points</th><th>Part</th><th>Points</th></tr>
+        <tr><td>Volume today vs normal</td><td>20</td><td>Price vs VWAP</td><td>10</td></tr>
+        <tr><td>Stock vs its sector</td><td>20</td><td>Trend strength (ADX)</td><td>10</td></tr>
+        <tr><td>Sector vs NIFTY</td><td>15</td><td>RSI</td><td>5</td></tr>
+        <tr><td>MACD momentum</td><td>15</td><td>Moving averages</td><td>5</td></tr>
+      </table>
+      <p class="muted" style="font-size:14px">80+ is a "strong candidate", 65+ "good", 50+ "watchlist", below that "low priority".
+        It's a way to rank candidates, <strong>not</strong> a chance of making money.</p>
+    </div>
+  </section>
+
+  <section class="card step">
+    <div class="num">8</div>
+    <div>
+      <h2>Joining and leaving the candidate list <span class="when">continuous</span></h2>
+      <div class="life">
+        <span class="chip">qualifies</span><span class="arrow">→ 30 s →</span>
+        <span class="chip new">NEW (10 min)</span><span class="arrow">→</span>
+        <span class="chip">active</span><span class="arrow">→ stops qualifying →</span>
+        <span class="chip weak">weakening</span><span class="arrow">→ 10 min →</span>
+        <span class="chip gone">removed</span>
+      </div>
+      <ul>
+        <li>A stock must keep qualifying for <strong>30 seconds</strong> before it's listed, so a one-off blip doesn't count.</li>
+        <li>If it stops qualifying, it's marked <em>weakening</em>. If it qualifies again within <strong>10 minutes</strong>, it stays.</li>
+        <li>Otherwise it's removed, and stays greyed out for 30 minutes so you can see that it dropped.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="card step">
+    <div class="num">9</div>
+    <div>
+      <h2>Alerts <span class="when">when something changes</span></h2>
+      <p>An alert fires when a stock <strong>qualifies</strong> or <strong>drops out</strong>, <strong>breaks a level</strong>
+        (the first-15-min high or low, yesterday's high or low, the 52-week high or low), or has a sudden <strong>volume spike</strong>
+        on a 1-minute candle. Stocks above your ₹1,000 limit get no alerts.</p>
+    </div>
+  </section>
+
+  <section class="card step">
+    <div class="num">10</div>
+    <div>
+      <h2>What you choose to see <span class="when">your dashboard</span></h2>
+      <p>The filter bar (sector, strategy, minimum score, Day RVOL, Chg % from–to, direction) only hides or shows rows.
+        It <strong>never changes</strong> steps 1–9 or the alerts.</p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Example: one stock, start to finish</h2>
+    <p>Take a ₹290 stock that usually moves 5% a day and is up 9% today:</p>
+    <ol>
+      <li>It's an EQ share, closed under ₹1,000 and usually moves more than 1.5%, so it <strong>passes the filters</strong> (step 3).</li>
+      <li>If it's among the 500 most traded, it gets the <strong>full scan</strong> (step 4).</li>
+      <li>Price above VWAP, MACD up, beating NIFTY: it's probably <strong>Bullish</strong> (step 5).</li>
+      <li>For <strong>Strong Momentum</strong> it also needs volume over 2.5× normal <em>and</em> a sector beating NIFTY (step 6).
+        If either is missing, it isn't a candidate, even with a 9% move.</li>
+      <li>Click <strong>why?</strong> on its row in the dashboard to see each check with ✓ or ✗ and the real numbers.</li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>Where to change these</h2>
+    <p>Every number here can be changed on the dashboard's <strong>Settings</strong> page (most take effect straight away).
+      Your changes are saved in <code>data/settings.json</code>; the defaults are in <code>config.py</code>.
+      The full formulas are in <code>technical_indicators_calculations.md</code>.</p>
+  </section>
+
+  <footer>For learning only. Not investment advice. The thresholds are starting points to test, not proven rules.</footer>
+</main>
+</body>
+</html>

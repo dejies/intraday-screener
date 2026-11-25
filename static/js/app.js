@@ -356,8 +356,8 @@
   // Per-viewer preferences (this browser only). Everything is always kept in the alert centre.
   const DEFAULT_PREFS = {
     toastMin: "MEDIUM", notifyMin: "HIGH", sound: false, confirmedOnly: false,
-    toast: { strategy_qualified: true, score_cross: true, breakout: true, rvol: true, feed: true, auth: true, data_error: true },
-    soundKinds: { strategy_qualified: true, breakout: true, feed: true, auth: true },
+    toast: { strategy_qualified: true, score_cross: true, breakout: true, rvol: true, feed: true, auth: true, data_error: true, token: true },
+    soundKinds: { strategy_qualified: true, breakout: true, feed: true, auth: true, token: true },
   };
   function loadPrefs() {
     let p = {};
@@ -630,6 +630,13 @@
   }
   $("testAlert").addEventListener("click", () => testAlert());
 
+  function priceBandText(c) {
+    const rs = (v) => "₹" + Number(v).toLocaleString("en-IN");
+    const band = c.min_price && c.max_price ? `between ${rs(c.min_price)} and ${rs(c.max_price)}`
+      : c.max_price ? `at or below ${rs(c.max_price)}` : c.min_price ? `at or above ${rs(c.min_price)}` : "";
+    return band ? ` Price band: only stocks whose previous close is ${band} are screened; the others are filtered and get no alerts.` : "";
+  }
+
   function renderLegend(c) {
     $("legend").innerHTML = `
       <p><strong>Alert centre.</strong> Every alert is created on the server when something <em>changes</em> (a stock qualifies or stops qualifying, a score or RVOL crosses a threshold, RS turns positive, a MACD cross, a VWAP reclaim or loss, a breakout, a volume spike, the feed going down or stale, a data failure), never on a page refresh. It is saved in the database with the values that triggered it and a unique key, so a restart neither loses nor repeats it. Severity is an operational priority (CRITICAL feed or system problems, HIGH strong setups, MEDIUM indicator events, LOW information), not a prediction. Indicator alerts cover candidates and stocks scoring at least ${CFG.alert_watch_min ?? 50}, with a per-stock cooldown. <em>Alert settings</em> chooses what pops up as a toast, plays a sound (off until you switch it on) or sends a desktop notification while the tab is in the background; the centre always keeps everything. Filter, acknowledge, or pick a date to see older days. Alerts are informational and need your own check: they are not buy or sell instructions.</p>
@@ -648,7 +655,7 @@
       <p><strong>RVOL day</strong> (first number). Today's volume up to the last completed candle divided by the average of the previous ${c.day_rvol_sessions} sessions up to the same time of day (needs at least ${c.rvol_min_sessions} past sessions). Feeds the score; ≥ ${c.cum_rvol_threshold}× is highlighted.</p>
       <p><strong>RVOL 5m</strong> (second number). The last completed ${c.interval}-min candle's volume divided by the average volume of the <em>same time slot</em> (e.g. 10:15–10:20) over the previous ${c.day_rvol_sessions} sessions, so the busy open isn't compared with a quiet lunch hour. ≥ ${c.candle_rvol_threshold}× is highlighted. The forming candle appears in the tooltip as LIVE / INCOMPLETE and never counts as a signal.</p>
       <p><strong>Bar RVOL (⚡ alerts).</strong> Volume of the latest <em>completed</em> ${c.rvol_interval}-min candle divided by the average volume of the ${c.rvol_lookback} completed candles before it (method from the reference intraday_scanner project). Bands: LOW &lt; 0.8, NORMAL &lt; 1.2, HIGH &lt; 2.0, VERY HIGH ≥ 2.0. An alert fires when it is above <strong>${c.rvol_threshold}×</strong> on bars from ${esc(c.rvol_from)}, at most once per stock every ${c.rvol_cooldown} min. The bar's colour (green/red) gives the direction. Every NSE equity share is screened; BE/BZ (trade-for-trade) and SM/ST/SZ (SME) stocks carry a tag and get live data and spike alerts only.</p>
-      <p><strong>Filters.</strong> Stocks with 20-day turnover below ₹${c.min_turnover_cr} cr or ATR below ${c.min_atr_pct}% go to “Neutral &amp; filtered”. Too illiquid or too quiet to trade intraday.</p>
+      <p><strong>Filters.</strong> ${c.min_turnover_cr > 0 ? `Stocks with 20-day turnover below ₹${c.min_turnover_cr} cr or ATR below ${c.min_atr_pct}% go to “Neutral &amp; filtered”: too illiquid or too quiet to trade intraday.` : `Stocks with ATR below ${c.min_atr_pct}% go to “Neutral &amp; filtered”: too quiet to trade intraday. The turnover filter is off (Settings → Min 20-day turnover), so thinly traded stocks are included: check the bid/ask before trusting a signal.`}${priceBandText(c)}</p>
       <p><strong>Breakouts.</strong> Fire once per stock per level per day when price crosses the opening-range high/low, previous-day high/low (PDH/PDL) or 52-week high/low by more than ${c.buffer_pct}%. “Confirmed” = at least ${c.min_confirmations} of MACD, DMI, ADX, RVOL and VWAP agree.</p>
       <p><strong>Sector strength.</strong> Sector RS = sector return − NIFTY 50 return, and <em>vs Sector</em> = stock return − its sector's return, each measured from the same start time on a 5-minute grid (5/15/30/60 min ago) or the previous close (day) to now. Hover for every horizon. A sector is measured by its NSE sector index where one exists, otherwise by the median of its liquid EQ-series stocks. <em>P92</em> means the stock is beating 92% of its sector peers today. “Falling less than Nifty” marks a sector that outperforms while still going down.</p>
       <p><strong>Live feed / all-NSE mode.</strong> Every stock streams price, day volume and the exchange's own VWAP over Dhan's WebSocket, and 1-min candles are built from those ticks, so ⚡ volume-spike alerts cover the whole universe (spike candle must trade at least ₹${c.rvol_min_value_lakh} lakh; Bar RVOL starts 20 candles after the feed connects). The full MACD/DMI/ADX scan runs on the most liquid stocks that pass the filters; ${c.breakouts_need_filters ? "breakout pop-ups are limited to those stocks" : "breakouts fire for every stock"}. Use the search box to find any stock.</p>
@@ -725,9 +732,14 @@
     if (FILT.score !== undefined && FILT.score !== "" && !((r.setup_score ?? -1) >= +FILT.score)) return false;
     if (FILT.rvol !== undefined && FILT.rvol !== "" && !((r.rvol ?? -1) >= +FILT.rvol)) return false;
     if (FILT.dir && r.bias !== FILT.dir) return false;
+    const [lo, hi] = chgBand();                       // the server already applied it to the vote tables
+    if ((lo !== null || hi !== null) && !(r.chg_pct !== null && r.chg_pct !== undefined
+        && (lo === null || r.chg_pct >= lo) && (hi === null || r.chg_pct <= hi))) return false;
     return true;
   }
-  const filtersOn = () => !!(FILT.sector || FILT.strategy || (FILT.score ?? "") !== "" || (FILT.rvol ?? "") !== "" || FILT.dir);
+  const chgBand = () => (CFG && CFG.chg_band) || [null, null];
+  const bandOn = () => chgBand().some((v) => v !== null);
+  const filtersOn = () => !!(FILT.sector || FILT.strategy || (FILT.score ?? "") !== "" || (FILT.rvol ?? "") !== "" || FILT.dir || bandOn());
   function fillFilterOptions(s) {
     const secs = [...new Set((s.sectors || []).map((t) => t.sector))].sort();
     const sig = secs.join("|");
@@ -743,7 +755,31 @@
     if (document.activeElement !== $("fScore")) $("fScore").value = FILT.score ?? "";
     if (document.activeElement !== $("fRvol")) $("fRvol").value = FILT.rvol ?? "";
     $("fDir").value = FILT.dir || "";
+    const [lo, hi] = chgBand();
+    if (!chgDirty) { $("fChgMin").value = lo ?? ""; $("fChgMax").value = hi ?? ""; }
   }
+  // Change % band: a server-side setting (TABLE_CHG_PCT_MIN / MAX), so it reaches every stock, not only
+  // the rows that were sent. Saved through the settings API, like the settings page does.
+  // chgDirty: the boxes hold the user's typing (not yet saved, or rejected), so redraws mustn't reset them.
+  let chgTimer = null, chgDirty = false, chgError = "";
+  async function saveChgBand(lo, hi) {
+    const num = (v) => (v === "" || v === null ? null : Number(v));
+    try {
+      const res = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ changes: { TABLE_CHG_PCT_MIN: num(lo), TABLE_CHG_PCT_MAX: num(hi) } }) });
+      const r = await res.json();
+      chgError = res.ok ? "" : Object.values(r.errors || {}).join("; ") || r.error || `HTTP ${res.status}`;
+      if (!chgError && CFG) CFG.chg_band = [num(lo), num(hi)];    // until the next push confirms it
+    } catch (e) { chgError = String(e); }
+    if (!chgError && $("fChgMin").value === String(lo ?? "") && $("fChgMax").value === String(hi ?? "")) chgDirty = false;
+    rerender();
+  }
+  const readChg = () => {
+    chgDirty = true;
+    clearTimeout(chgTimer);
+    chgTimer = setTimeout(() => saveChgBand($("fChgMin").value, $("fChgMax").value), 600);
+  };
+  ["fChgMin", "fChgMax"].forEach((id) => $(id).addEventListener("input", readChg));
   const readFilters = () => {
     FILT = { sector: $("fSector").value, strategy: $("fStrategy").value, score: $("fScore").value, rvol: $("fRvol").value, dir: $("fDir").value };
     store.set("rowFilters", JSON.stringify(FILT));
@@ -751,7 +787,13 @@
   };
   ["fSector", "fStrategy", "fDir"].forEach((id) => $(id).addEventListener("change", readFilters));
   ["fScore", "fRvol"].forEach((id) => $(id).addEventListener("input", readFilters));
-  $("fReset").addEventListener("click", () => { FILT = {}; store.set("rowFilters", "{}"); fillFilterOptions(lastState || {}); rerender(); });
+  $("fReset").addEventListener("click", () => {
+    FILT = {}; store.set("rowFilters", "{}");
+    clearTimeout(chgTimer); chgDirty = false; chgError = "";
+    $("fChgMin").value = $("fChgMax").value = "";
+    if (bandOn()) saveChgBand("", "");
+    fillFilterOptions(lastState || {}); rerender();
+  });
 
   // ---------- "why?" view ----------
   const GATE_ICON = { pass: ["ok", "✓"], fail: ["no", "✗"], na: ["na", "?"] };
@@ -925,6 +967,20 @@
 
   // ---------- main loop ----------
   let legendDone = false;
+  function renderToken(tk) {
+    const el = $("token");
+    el.hidden = !tk;
+    if (!tk) return;
+    const h = tk.hours_left;
+    el.className = `badge ${{ expiring: "warn", unknown: "warn", failing: "err", expired: "err" }[tk.state] || ""}`;
+    el.textContent = tk.state === "expired" ? "token expired" : h === null ? "token ?" : `token ${h < 1 ? `${Math.max(0, Math.round(h * 60))} min` : `${Math.floor(h)} h`} left`;
+    const plan = tk.auto_renew
+      ? `Auto-renewal at ${tk.times.length ? tk.times.join(", ") : "no set times"} IST${tk.on_exit ? " and when the app stops" : ""}; next ${tk.next ? `${tk.next.label} (${tk.next.why})` : "—"}.`
+      : "Auto-renewal is off (Settings → Access token).";
+    const last = tk.last ? ` Last: ${tk.last.ok ? "OK" : "failed"} at ${tk.last.time.slice(11, 16)} (${tk.last.reason}): ${tk.last.message}.` : "";
+    el.title = `Dhan access token valid until ${tk.expires_label || "unknown"} IST. ${plan}${last}`;
+  }
+
   function renderAll(s) {
     if (s.config) CFG = s.config;
     if (s.strategy_meta) META = s.strategy_meta;
@@ -963,9 +1019,13 @@
     } else {
       $("universeInfo").textContent = `Watchlist: ${num(s.counts.rows, 0)} stocks`;
     }
+    renderToken(s.token);
 
     let banner = "", cls = "banner";
-    if (s.auth_error) { banner = `Dhan rejected the credentials: ${s.auth_error}. Generate a new access token (web.dhan.co → My Profile → Access DhanHQ APIs), update .env and restart.`; cls += " error"; }
+    const tk = s.token;
+    if (s.auth_error) { banner = `Dhan rejected the credentials: ${s.auth_error}. Generate a new access token (web.dhan.co → My Profile → Access DhanHQ APIs) and put it in .env${tk ? ": the running app loads it within a minute" : ", then restart"}.`; cls += " error"; }
+    else if (tk && tk.state === "expired") { banner = `The Dhan access token expired (${tk.expires_label} IST) and can't be renewed. Generate a new one on web.dhan.co and put it in .env: the running app loads it within a minute.`; cls += " error"; }
+    else if (tk && tk.state === "failing") { banner = `Access-token renewal failed: ${tk.last ? tk.last.message : "unknown error"}. Retrying every few minutes; the current token is valid until ${tk.expires_label} IST.`; cls += " error"; }
     else if (s.data_state === "stale") { banner = `No price updates for over ${s.config.stale_seconds} seconds while the market is open: prices on screen may be out of date.`; cls += " error"; }
     else if (live && !f.connected) banner = `Live feed disconnected${f.last_error ? ` (${f.last_error})` : ""} — reconnecting automatically…`;
     else if (!s.ready) banner = live ? "Connecting to the live feed…" : "Loading candles and computing indicators… (first scan takes ~30 s for 50 stocks)";
@@ -981,7 +1041,10 @@
     $("bullCount").textContent = shown(bull.length, filtersOn() ? bull.length : s.counts.bullish);
     $("bearCount").textContent = shown(bear.length, filtersOn() ? bear.length : s.counts.bearish);
     $("neutralCount").textContent = shown(neu.length, filtersOn() ? neu.length : s.counts.neutral);
-    $("fInfo").textContent = filtersOn() ? "filters on: they apply to the candidate and vote tables" : "";
+    const [blo, bhi] = chgBand();
+    const bandText = bandOn() ? ` · change % ${blo ?? "any"} to ${bhi ?? "any"} checked across all ${num(s.counts.rows, 0)} stocks` : "";
+    $("fInfo").textContent = chgError ? `Chg %: ${chgError}` : filtersOn() ? `filters on: they apply to the candidate and vote tables${bandText}` : "";
+    $("fInfo").className = chgError ? "down" : "muted";
     maybeRefreshSearch();
     renderTable($("bullTable"), bull, COLS, s.ready ? (filtersOn() ? "No bullish stock matches the filters." : "No stock meets the bullish rules right now.") : "Loading…");
     renderTable($("bearTable"), bear, COLS, s.ready ? (filtersOn() ? "No bearish stock matches the filters." : "No stock meets the bearish rules right now.") : "Loading…");

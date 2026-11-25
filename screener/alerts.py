@@ -45,6 +45,7 @@ KINDS = {
     "feed": ("Feed", "system"),
     "data_error": ("Data error", "system"),
     "auth": ("Credentials", "system"),
+    "token": ("Access token", "system"),
 }
 EVENT_KIND = {"qualified": "strategy_qualified", "weakening": "strategy_lost", "removed": "strategy_removed",
               "requalified": "strategy_requalified"}

@@ -167,9 +167,9 @@ def main() -> None:
             f"candles, {len(tests)} testable (each needs {cfg.RVOL_MIN_SESSIONS} earlier sessions for RVOL).")
         if cov["indices_without_5min"]:
             log(f"No 5-min candles for: {', '.join(cov['indices_without_5min'])}. Sector RS is unavailable there, which "
-                "blocks Strong Momentum and Sector Leaders for those stocks. Fill them with: python history.py backfill")
+                "blocks Strong Momentum and Sector Leaders for those stocks. Fill them with: python history.py backfill --watchlist nifty50.txt")
     if not tests:
-        sys.exit("No testable sessions. Load more history first, e.g.: python history.py backfill --days 120")
+        sys.exit("No testable sessions. Load more history first, e.g.: python history.py backfill --watchlist nifty50.txt --days 120")
     result = bt.run(market, cfg, variants, b, tests, strategies, log=log)
     rep = bt.build_report(market, cfg, result, b, args.label, tests, strategy_config_json(cfg)[0])
     print()
