@@ -19,8 +19,28 @@ from . import indicators as ind
 from . import logs
 from .engine import (PRE_OPEN, ScreenerEngine, compute_daily_stats, compute_intraday,
                      expected_session_day, market_phase, price_band_reason)
+from .market_calendar import get_calendar
 
 log = logging.getLogger(__name__)
+
+
+def last_candle_close(now: datetime, interval_min: int, settle_s: float = 0) -> datetime | None:
+    """End of the latest candle of today's session that finished at least `settle_s` seconds ago
+    (09:20, 09:25, … 15:30 for 5-min candles), or None before the first one / on a closed day."""
+    times = get_calendar().session_times(now.date())
+    if not times:
+        return None
+    start, end = datetime.combine(now.date(), times[0]), datetime.combine(now.date(), times[1])
+    t = min(now - timedelta(seconds=settle_s), end)
+    step = timedelta(minutes=interval_min)
+    if t < start + step:
+        return None
+    return start + step * int((t - start) / step)
+
+
+def _fmt_gap(seconds: float) -> str:
+    m, s = divmod(int(round(seconds)), 60)
+    return f"{m} min {s:02d} s" if m else f"{s} s"
 
 INTRADAY_DEFAULTS = dict(
     open=None, day_high=None, day_low=None, last_close=None, last_bar=None, bars=0, session_started=False,
@@ -60,6 +80,14 @@ class LiveScreenerEngine(ScreenerEngine):
         self.by_id: dict[str, str] = {}
         self._rvol_minute: datetime | None = None
         self.atp_hist: dict[str, deque] = {}        # per-minute exchange VWAP samples (VWAP slope)
+        # Refresh-stall and sleep detection (see _refresh_watch / _sleep_watch)
+        self._fetch_ok_at: datetime | None = None    # last successful background Dhan fetch (market clock)
+        self._started_at: datetime | None = None
+        self._stalled_since: datetime | None = None
+        self._stall_alerted = False
+        self._loop_wall: float | None = None         # real time of the previous live-loop check
+        self._resumed_at: datetime | None = None     # market-clock time the app woke from a pause
+        self.last_pause: dict | None = None          # {"from", "to", "seconds"} of the last sleep / freeze
 
     # ------------------------------------------------------------- bootstrap
     def bootstrap(self) -> None:
@@ -96,6 +124,51 @@ class LiveScreenerEngine(ScreenerEngine):
     def _ok(self) -> None:
         if self.auth_error and not getattr(self.feed, "fatal", None):
             self.auth_error = None
+
+    # ------------------------------------------------- full-scan schedule
+    def deep_due(self, now: datetime) -> list[str]:
+        """Full-scan stocks to fetch now, most urgent first. A stock is due when it hasn't been fetched
+        since the latest 5-min candle closed (plus DEEP_SETTLE_SECONDS for Dhan to publish it), so each
+        candle is judged right after it finishes rather than up to 5 minutes later. Order: current
+        strategy candidates, then the stocks with the biggest 1-min volume bursts (from the live feed)
+        in the candle that just closed, then by turnover. Call with self.lock held."""
+        cfg = self.cfg
+        boundary = last_candle_close(now, cfg.CANDLE_INTERVAL_MIN, getattr(cfg, "DEEP_SETTLE_SECONDS", 5))
+        every = timedelta(seconds=cfg.DEEP_REFRESH_SECONDS)
+        is_open = market_phase(now) == "open"
+        cands = self._deep_candidates()
+
+        def due(s):
+            last = self.deep_at.get(s)
+            return (last is None or (boundary is not None and last < boundary)
+                    or (is_open and now - last >= every))      # fallback: never older than DEEP_REFRESH_SECONDS
+        todo = [s for s in cands if due(s)]
+        if len(todo) < 2 or boundary is None:
+            return todo
+        watched = {sym for (_, sym), it in self.book.visible(now).items()
+                   if it.get("state") in ("new", "active", "weakening")}
+        start = boundary - timedelta(minutes=cfg.CANDLE_INTERVAL_MIN)
+
+        def burst(s):
+            recent = (self.spikes.get(s) or {}).get("recent") or []
+            return max((b.get("bar_rvol") or 0 for b in recent if start <= b["bar_time"] < boundary), default=0)
+        rank = {s: i for i, s in enumerate(todo)}
+        return sorted(todo, key=lambda s: (s not in watched, -burst(s), rank[s]))
+
+    def _clock_speed(self) -> float:
+        """Market-clock seconds per real second: 1 live, faster in the demo."""
+        inner = getattr(self.client, "inner", self.client)
+        return max(float(getattr(inner, "speed", 1) or 1), 1.0)
+
+    def _idle_wait(self, now: datetime) -> float:
+        """How long the history worker sleeps when nothing is due: wake for the next candle close."""
+        if market_phase(now) not in ("open", "pre-open"):
+            return 60.0
+        cfg = self.cfg
+        step = timedelta(minutes=cfg.CANDLE_INTERVAL_MIN)
+        nxt = (last_candle_close(now, cfg.CANDLE_INTERVAL_MIN) or now) + step
+        wait = (nxt - now).total_seconds() + getattr(cfg, "DEEP_SETTLE_SECONDS", 5)
+        return max(0.5, min(5.0, wait / self._clock_speed()))
 
     # -------------------------------------------------------- history worker
     def _start_daily(self, day: date) -> None:
@@ -139,6 +212,7 @@ class LiveScreenerEngine(ScreenerEngine):
                 if s:
                     with self.lock:
                         self.daily[sym] = s
+                self._fetch_ok_at = now
                 self._ok()
             except Exception as exc:
                 self._error(f"{sym}: daily candles failed: {exc}", exc)
@@ -150,10 +224,8 @@ class LiveScreenerEngine(ScreenerEngine):
 
         warm_start = datetime.combine((now - timedelta(days=cfg.WARMUP_CALENDAR_DAYS)).date(), PRE_OPEN)
         session = expected_session_day(now) or day
-        every = timedelta(seconds=cfg.DEEP_REFRESH_SECONDS)
         with self.lock:
-            cands = self._deep_candidates()
-        due = [s for s in cands if s not in self.deep_at or now - self.deep_at[s] >= every]
+            due = self.deep_due(now)
         for sym in due[: budget - done]:
             done += 1
             self.deep_at[sym] = now
@@ -167,6 +239,7 @@ class LiveScreenerEngine(ScreenerEngine):
                 if m:
                     self._save_snapshots({sym: m}, session)
                     self.last_candle_update = now
+                self._fetch_ok_at = now
                 self._ok()
             except Exception as exc:
                 self._error(f"{sym}: intraday candles failed: {exc}", exc)
@@ -320,8 +393,85 @@ class LiveScreenerEngine(ScreenerEngine):
     def check_system(self, now: datetime | None = None) -> list[dict]:
         now = now or self.client.now()
         out = super().check_system(now)
+        self._sleep_watch(now)
         self._feed_watchdog(now)
+        self._refresh_watch(now)
         return out
+
+    def _sleep_watch(self, now: datetime, wall: float | None = None) -> None:
+        """The live loop runs every couple of seconds. A much longer gap in *real* time means the computer
+        slept (or the process was frozen): say so, and reconnect the feed now instead of waiting for the
+        silent-feed watchdog, since a socket rarely survives a sleep."""
+        wall = _time.time() if wall is None else wall
+        prev, self._loop_wall = self._loop_wall, wall
+        limit = getattr(self.cfg, "SLEEP_GAP_SECONDS", 30)
+        if prev is None or wall - prev < limit:
+            return
+        gap = wall - prev
+        speed = self._clock_speed()
+        began = now - timedelta(seconds=gap * speed)
+        self.last_pause = {"from": began.strftime("%H:%M:%S"), "to": now.strftime("%H:%M:%S"), "seconds": round(gap)}
+        self._resumed_at = now
+        phase = market_phase(now)
+        log.warning("The computer was asleep (or the app was frozen) for %s, %s to %s: live data paused; catching up",
+                    _fmt_gap(gap), self.last_pause["from"], self.last_pause["to"])
+        if phase in ("open", "pre-open") or market_phase(began) in ("open", "pre-open"):
+            rule = self.cfg.ALERT_RULES.get("sleep", {})
+            if rule.get("enabled", True):
+                self.alerts.emit({"kind": "sleep", "severity": rule.get("severity", "HIGH"), "symbol": "", "direction": "",
+                                  "level_name": "Computer asleep",
+                                  "alert_key": f"{self.alerts.session_day}|sleep|{now:%H%M%S}",
+                                  "text": f"The computer was asleep (or the app was frozen) for {_fmt_gap(gap)}, "
+                                          f"{self.last_pause['from']} to {self.last_pause['to']}. Prices, candles and alerts "
+                                          "paused and are catching up now; anything that happened in between may be "
+                                          "reported late. Keep the Mac awake and the lid open during market hours."}, now)
+        if getattr(self.feed, "force_reconnect", lambda _r: False)(f"the computer was asleep for {_fmt_gap(gap)}"):
+            self._last_forced = _time.monotonic()
+
+    def deep_lag(self, now: datetime) -> dict:
+        """How far the full scan is behind the latest candle close."""
+        with self.lock:
+            boundary = last_candle_close(now, self.cfg.CANDLE_INTERVAL_MIN, getattr(self.cfg, "DEEP_SETTLE_SECONDS", 5))
+            if boundary is None:
+                return {"due": 0, "boundary": None}
+            cands = self._deep_candidates()
+            due = sum(1 for s in cands if self.deep_at.get(s) is None or self.deep_at[s] < boundary)
+        return {"due": due, "boundary": boundary}
+
+    def _refresh_watch(self, now: datetime) -> None:
+        """CRITICAL alert when, during market hours, stocks are waiting for their 5-min refresh and no
+        background fetch has succeeded for ALERT_RULES['refresh']['after_seconds'] (counted from the candle
+        close, the app's start or a wake-up, whichever is latest); LOW alert when it moves again."""
+        rule = self.cfg.ALERT_RULES.get("refresh", {})
+        limit = rule.get("after_seconds", 120)
+        if self._started_at is None:
+            self._started_at = now
+        lag = self.deep_lag(now) if market_phase(now) == "open" else {"due": 0, "boundary": None}
+        if not lag["due"]:
+            if self._stall_alerted and rule.get("enabled", True):
+                self.alerts.emit({"kind": "refresh", "severity": "LOW", "symbol": "", "direction": "up",
+                                  "level_name": "Refresh resumed",
+                                  "alert_key": f"{self.alerts.session_day}|refresh|ok|{now:%H%M%S}",
+                                  "text": f"5-min indicator refresh is up to date again (it was stalled since "
+                                          f"{self._stalled_since:%H:%M:%S})."}, now)
+            self._stalled_since, self._stall_alerted = None, False
+            return
+        since = max(t for t in (self._fetch_ok_at, lag["boundary"], self._started_at, self._resumed_at) if t is not None)
+        if (now - since).total_seconds() < limit:
+            return
+        if self._stalled_since is None:
+            self._stalled_since = since
+        if not self._stall_alerted:
+            self._stall_alerted = True
+            log.warning("5-min indicator refresh stalled since %s (%d stocks waiting)", f"{since:%H:%M:%S}", lag["due"])
+            if rule.get("enabled", True):
+                self.alerts.emit({"kind": "refresh", "severity": "CRITICAL", "symbol": "", "direction": "",
+                                  "level_name": "Refresh stalled",
+                                  "alert_key": f"{self.alerts.session_day}|refresh|{since:%H%M%S}",
+                                  "text": f"5-min indicator refresh has made no progress since {since:%H:%M:%S} "
+                                          f"({lag['due']} stocks waiting): the strategy tabs, scores and breakouts are "
+                                          "behind the market. Usually the network or Dhan; it resumes by itself. "
+                                          "Check the errors panel and `manage.py check`."}, now)
 
     def _feed_watchdog(self, now: datetime) -> None:
         """Open but silent socket while the market is open (data state "stale") for
@@ -349,7 +499,11 @@ class LiveScreenerEngine(ScreenerEngine):
             "mode": "live", "universe": self.universe, "feed": self.feed.status(),
             "history": {"daily_loaded": len(self.daily), "daily_total": len(self.ids),
                         "deep_scanned": len(self.intraday), "deep_candidates": len(self._deep_candidates()),
-                        "deep_max": self.cfg.DEEP_SCAN_MAX},
+                        "deep_max": self.cfg.DEEP_SCAN_MAX,
+                        "last_fetch": self._fetch_ok_at.strftime("%H:%M:%S") if self._fetch_ok_at else None,
+                        "stalled_since": self._stalled_since.strftime("%H:%M:%S") if self._stall_alerted else None},
+            "pause": self.last_pause if self.last_pause and self._resumed_at is not None and
+                     (self.client.now() - self._resumed_at) <= timedelta(minutes=15) else None,
         }
 
     # ------------------------------------------------------------------ loop
@@ -364,7 +518,7 @@ class LiveScreenerEngine(ScreenerEngine):
             if self.auth_error:
                 stop.wait(60)
             elif n == 0:
-                stop.wait(5 if market_phase(self.client.now()) in ("open", "pre-open") else 60)
+                stop.wait(self._idle_wait(self.client.now()))
 
     def run_forever(self, stop: threading.Event) -> None:
         while not stop.is_set():

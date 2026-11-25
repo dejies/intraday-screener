@@ -67,7 +67,8 @@ def make_client(args, cfg, symbols):
         from screener.dhan_client import DhanClient
         try:
             inner = DhanClient(cfg.DHAN_CLIENT_ID, cfg.DHAN_ACCESS_TOKEN,
-                               data_per_second=cfg.DATA_API_MAX_PER_SECOND, cache_dir=cfg.DATA_DIR)
+                               data_per_second=cfg.DATA_API_MAX_PER_SECOND, cache_dir=cfg.DATA_DIR,
+                               deadline=getattr(cfg, "API_REQUEST_DEADLINE_SECONDS", 30))
         except ValueError as exc:
             sys.exit(f"{exc}\nOr run with --demo to try the dashboard on simulated data.")
         db_path = args.db
@@ -345,6 +346,25 @@ def create_app(engine: ScreenerEngine, cfg=None, settings_path: Optional[Path] =
     return app
 
 
+def keep_awake(cfg):
+    """macOS: stop idle sleep while this process runs (`caffeinate -i -w <pid>` ends with it). Returns the
+    process, or None when it's off or not available. A sleeping Mac freezes the whole screener."""
+    import os
+    import shutil
+    import subprocess
+    if not getattr(cfg, "PREVENT_SLEEP", False) or sys.platform != "darwin" or not shutil.which("caffeinate"):
+        return None
+    try:
+        proc = subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as exc:
+        log.warning("Couldn't keep the Mac awake (caffeinate): %s", exc)
+        return None
+    log.info("Keeping the Mac awake while the screener runs (caffeinate). The display can still turn off; "
+             "closing the lid on battery still sleeps the Mac. Settings → PREVENT_SLEEP to turn this off.")
+    return proc
+
+
 def print_once(engine: ScreenerEngine) -> None:
     import pandas as pd
 
@@ -427,6 +447,7 @@ def main() -> None:
         return
 
     stop = threading.Event()
+    awake = None if args.demo else keep_awake(cfg)
     tokens = None
     if not args.demo:                           # access-token auto-renewal (screener/token_manager.py)
         from screener.token_manager import TokenManager
@@ -454,6 +475,8 @@ def main() -> None:
             except BaseException:               # a second Ctrl+C or a network error: don't hang the exit
                 log.exception("Access-token renewal on exit failed")
         stop.set()
+        if awake is not None:
+            awake.terminate()
 
 
 if __name__ == "__main__":

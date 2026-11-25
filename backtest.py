@@ -69,7 +69,7 @@ def main() -> None:
     p.add_argument("--no-baseline", action="store_true", help="don't add the unchanged settings as a variant")
     p.add_argument("--no-settings", action="store_true", help="ignore data/settings.json (use config.py defaults)")
     p.add_argument("--stop-atr", type=parse_value, help="stop at k x intraday ATR (none = no ATR stop)")
-    p.add_argument("--stop-pct", type=float, help="fixed % stop (with --stop-atr none)")
+    p.add_argument("--stop-pct", type=float, help="fixed %% stop (with --stop-atr none)")
     p.add_argument("--target-r", type=parse_value, help="take profit at this multiple of the risk (none = off)")
     p.add_argument("--exit-time", help="square-off time HH:MM")
     p.add_argument("--last-entry", help="no entries after HH:MM")

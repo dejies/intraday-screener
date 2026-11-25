@@ -150,7 +150,13 @@ WS_MAX_INSTRUMENTS = 5000       # Dhan limit per connection (100 per subscribe m
 LIVE_REBUILD_SECONDS = 2        # how often the live tables are recomputed from the feed
 PUSH_INTERVAL_SECONDS = 1.0     # how often the dashboard WebSocket sends changes
 LIVE_BAR_HISTORY = 120          # 1-min bars kept in memory per stock (Bar RVOL needs ~32)
-DEEP_REFRESH_SECONDS = 300      # 5-min indicators (MACD/DMI/ADX/Day RVOL) per stock, once per bar
+DEEP_REFRESH_SECONDS = 300      # longest a full-scan stock goes without a refresh while the market is open
+DEEP_SETTLE_SECONDS = 5         # each stock is refreshed right after every 5-min candle closes, this many seconds
+                                # later (time for Dhan to publish it); candidates and 1-min volume bursts go first
+API_REQUEST_DEADLINE_SECONDS = 30   # a Dhan request still unanswered by then fails (covers a hung DNS lookup)
+SLEEP_GAP_SECONDS = 30          # a pause this long between live refreshes means the computer slept (or froze)
+PREVENT_SLEEP = True            # macOS, live mode: keep the Mac awake while the app runs (caffeinate -i).
+                                # The display can still turn off; closing the lid on battery still sleeps it.
 DEEP_SCAN_MAX = 500             # most-liquid filter-passing stocks that get the full indicator scan
 DEEP_SCAN_ALL_IF_UNDER = 100    # small universes (a watchlist) get the full scan for every stock
 HISTORY_CALLS_PER_STEP = 8      # REST calls per background step (keeps the worker responsive)
@@ -277,6 +283,8 @@ ALERT_RULES = {
     "data_error": {"enabled": True, "severity": "MEDIUM", "cooldown_min": 10},   # repeats within 10 min are counted
     "auth": {"enabled": True, "severity": "CRITICAL"},
     "token": {"enabled": True},          # access-token renewal: renewed -> LOW; failed / expired -> CRITICAL
+    "refresh": {"enabled": True, "after_seconds": 120},   # 5-min indicator refresh stuck -> CRITICAL; moving -> LOW
+    "sleep": {"enabled": True, "severity": "HIGH"},       # the computer slept / froze during market hours
 }
 ALERT_MEMORY = 1000             # alerts kept in memory (all of today's are also in SQLite)
 ALERT_SNAPSHOT_MAX = 200        # newest alerts sent to the dashboard every refresh

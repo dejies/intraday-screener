@@ -125,7 +125,7 @@ def _fields() -> list[dict]:
     ]
     for kind in ("strategy_qualified", "strategy_lost", "strategy_removed", "strategy_requalified", "score_cross",
                  "rvol_cross", "rs_positive", "sector_top", "sector_rs_positive", "macd_bullish", "vwap_cross",
-                 "breakout", "rvol", "feed", "data_error", "auth", "token"):
+                 "breakout", "rvol", "feed", "data_error", "auth", "token", "refresh", "sleep"):
         f.append(F(f"ALERT_RULES.{kind}.enabled", f"Alert type on: {kind.replace('_', ' ')}", "bool", GROUPS[6]))
     for kind in ("strategy_lost", "strategy_removed", "strategy_requalified", "rvol_cross", "rs_positive", "sector_top",
                  "sector_rs_positive", "macd_bullish", "vwap_cross", "rvol", "data_error"):
@@ -145,12 +145,20 @@ def _fields() -> list[dict]:
         F("ALERT_RULES.rvol_cross.rearm_below", "RVOL crossing re-arms below (×)", "float", GROUPS[6], min=0, max=20),
         F("ALERT_RULES.feed.after_seconds", "Feed problem lasts this long before CRITICAL (s)", "int", GROUPS[6],
           min=0, max=600),
+        F("ALERT_RULES.refresh.after_seconds", "5-min refresh stuck this long before CRITICAL (s)", "int", GROUPS[6],
+          min=30, max=1800),
 
         F("LTP_POLL_SECONDS", "Price poll, watchlist mode (s)", "int", GROUPS[7], min=1, max=300),
         F("CANDLE_POLL_SECONDS", "Candle refresh, watchlist mode (s)", "int", GROUPS[7], min=15, max=900),
         F("LIVE_REBUILD_SECONDS", "Table rebuild, live feed (s)", "float", GROUPS[7], min=0.5, max=60),
         F("PUSH_INTERVAL_SECONDS", "Dashboard push interval (s)", "float", GROUPS[7], min=0.5, max=30),
         F("STALE_FEED_SECONDS", "No price update for this long → DATA STALE (s)", "int", GROUPS[7], min=5, max=600),
+        F("DEEP_SETTLE_SECONDS", "Refresh this long after each 5-min candle closes (s)", "int", GROUPS[7], min=0, max=60,
+          help="time for Dhan to publish the finished candle"),
+        F("API_REQUEST_DEADLINE_SECONDS", "Give up on a Dhan request after (s)", "int", GROUPS[7], min=5, max=120,
+          restart=True, help="covers a hung DNS lookup, which Dhan's own timeouts don't"),
+        F("PREVENT_SLEEP", "Keep the Mac awake while the live app runs", "bool", GROUPS[7], restart=True,
+          help="macOS caffeinate: no idle sleep; the display can still turn off; closing the lid on battery still sleeps it"),
         F("DATA_API_MAX_PER_SECOND", "Dhan data requests per second", "float", GROUPS[7], min=0.5, max=5, restart=True,
           help="Dhan allows 5 per second"),
 

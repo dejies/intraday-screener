@@ -126,10 +126,14 @@ def _shape(data) -> str:
 
 def renew(client_id: str, token: str, url: str = RENEW_URL, timeout: float = 15, http=None) -> str:
     """Ask Dhan for a new 24-hour token (the current one stops working once Dhan answers)."""
+    from .dhan_client import Deadline, call_with_deadline
     http = http or requests
     try:
-        resp = http.get(url, headers={"access-token": token, "dhanClientId": client_id,
-                                      "Accept": "application/json"}, timeout=timeout)
+        resp = call_with_deadline(lambda: http.get(url, headers={"access-token": token, "dhanClientId": client_id,
+                                                                 "Accept": "application/json"}, timeout=timeout),
+                                  timeout + 10)
+    except Deadline as exc:
+        raise TokenError(f"network error ({exc})") from None
     except requests.RequestException as exc:
         raise TokenError(f"network error ({type(exc).__name__})") from None
     try:

@@ -24,7 +24,7 @@ For development, `pip install -e ".[test]"` also installs the commands `screener
 |---|---|---|
 | Before 08:45 | Only after a day or more with the app stopped: new access token if it expired (the app renews it otherwise; `manage.py check` shows the expiry) | edit `.env` |
 | 08:30 (all-NSE mode) | Daily candles for every stock | `history.py backfill --universe nse --daily-only` |
-| 08:45–09:10 | Check, then start | `scripts/start.sh` |
+| 08:45–09:10 | Check, then start; plug the Mac in and keep the lid open | `scripts/start.sh` |
 | 09:15–15:30 | Watch; the 🔔 badge and CRITICAL toasts flag problems | dashboard |
 | After 15:30 | Review alerts; back up; stop with Ctrl+C | `history.py alerts --days 1`, `scripts/backup.sh` |
 | Weekly | New listings and sectors | `universe.py build` |
@@ -113,6 +113,8 @@ schema upgrades itself if the backup is from an older version.
 | Live feed disconnects | reconnects with backoff (1 s → 30 s); CRITICAL alert after 10 s, LOW when back | nothing, unless it keeps failing: check the network and `manage.py check` |
 | Feed connected but silent while open | DATA STALE + CRITICAL after 10 s; **forced reconnect** after 60 s (`FEED_RECONNECT_STALE_SECONDS`), at most once a minute | if it repeats, restart; check Dhan's status |
 | REST price / candle calls fail | the loop keeps running; one MEDIUM *Data error* alert counts the repeats; stale prices go CRITICAL | check network / rate limits; errors panel lists the details |
+| The Mac slept (idle, or the lid closed) | everything pauses; on wake: HIGH **Computer asleep** alert with the times, banner, immediate feed reconnect, the full scan catches up (most active stocks first) | keep the lid open and the Mac on power during market hours; `PREVENT_SLEEP` (on by default) stops idle sleep |
+| 5-min refresh stuck (network, DNS, Dhan) | each request gives up after 30 s; CRITICAL **Indicator refresh** alert after 2 min without progress (`ALERT_RULES.refresh.after_seconds`), INDICATORS BEHIND badge, LOW alert when it moves again | check the network; `manage.py check`; the errors panel |
 | App crashed or stopped mid-day | on restart: candles from SQLite, today's alerts, acknowledgements and candidates restored; nothing re-fires (unique keys) | `scripts/start.sh` |
 | `data/settings.json` broken or invalid | ignored with a warning; `config.py` defaults used | fix it on the settings page, or delete it |
 | Database deleted | rebuilt empty; candles re-fetched as needed | restore a backup to keep alert / backtest history |
@@ -133,6 +135,7 @@ schema upgrades itself if the backup is from an older version.
 | Old databases upgrade in place | `test_alerts.py::test_schema_v6_upgrade_keeps_old_alerts`, `test_strategies.py::test_schema_upgrade_and_prune` |
 | Missing database is rebuilt | `test_hardening.py::test_missing_database_is_recreated` |
 | Bad saved settings are skipped | `test_dashboard.py::test_save_and_load_round_trip` |
+| Full scan fetched right after each candle closes, most active first; stall / sleep alerts; request deadline | `test_refresh.py` |
 | Holidays and special sessions | `test_hardening.py::test_calendar_phases_and_trading_days`, `…test_snapshot_on_a_holiday` |
 | Backups are consistent and leave out `.env` | `test_hardening.py::test_backup_is_consistent_and_leaves_out_env` |
 

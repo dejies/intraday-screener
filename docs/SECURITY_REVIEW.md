@@ -44,6 +44,7 @@ and configuration, with the tests that back each control. It isn't an external a
 | Low | The access token sits in plain text in `.env` (inherent to Dhan's API-token model). Tokens expire after a day, but auto-renewal keeps one valid indefinitely, so a copied token stays useful to whoever holds it for as long as they renew it. | Keep `.env` out of backups you share. If you think it leaked, generate a new token on Dhan Web (that ends the old chain) and put it in `.env`. The first renewal also makes `.env` mode 600. |
 | Low | Dependencies use version ranges, not hashes. | Run `pip install pip-audit && pip-audit -r requirements.txt` now and then; update within the ranges. |
 | Info | `style-src` allows inline styles (the pages use `style=` attributes). Styles can't run code, so this doesn't weaken the script protections. | — |
+| Info | In live mode on macOS the app starts `caffeinate -i -w <its own pid>` (fixed arguments, no shell) so the Mac doesn't idle-sleep; it ends with the app. | Turn it off with `PREVENT_SLEEP` if you don't want that. |
 | Info | The live WebSocket client has only been tested against a fake server, not the real Dhan feed. | Do the manual first-live-day checks in [OPERATIONS.md](OPERATIONS.md#7-recovery-playbook). |
 
 ## Configuration backup

@@ -574,7 +574,7 @@ treatment, edit `NSE_STOCK_SERIES` and `INTRADAY_SERIES` in `config.py`.
 | Price, day volume, day open/high/low, VWAP, % change, relative strength | **all** (3,213) | WebSocket Quote packets (VWAP = Dhan's average trade price), prev close packet |
 | 1-min candles → **Bar RVOL ⚡ alerts** | **all** | built from the ticks (as in the reference project) |
 | PDH/PDL, 52-week levels, ATR, turnover (the filters) | **all** | daily candles over REST, loaded in the background, cached in SQLite |
-| MACD, +DI/−DI, ADX, Day RVOL, opening range → **bullish/bearish lists, breakout alerts** | the **500 most liquid stocks that pass the filters** (`DEEP_SCAN_MAX`) | 5-min candles over REST, refreshed once per 5-min bar |
+| MACD, +DI/−DI, ADX, Day RVOL, opening range → **bullish/bearish lists, breakout alerts** | the **500 most liquid stocks that pass the filters** (`DEEP_SCAN_MAX`) | 5-min candles over REST, fetched right after each 5-min candle closes (+5 s): strategy candidates first, then the stocks with the biggest 1-min volume bursts in that candle (from the feed), then by turnover. A whole pass takes about 2 minutes at Dhan's rate |
 
 Why not the full indicator scan for all 3,213? That would need about 3,200 REST requests every
 5 minutes (more than 13 minutes per pass at Dhan's rate). Stocks that fail the turnover and ATR
@@ -586,6 +586,13 @@ filters (or aren't EQ series) would land in *Neutral & filtered* anyway. They st
   each stock (also about 3,200 small requests). Your watchlist loads first, then EQ stocks, then BE/SME. Either run
   `history.py backfill --universe nse --daily-only` before 09:00, or start the app by about 08:45.
   Stocks join the lists as their history loads; the banner shows progress.
+- **Keep the Mac awake.** A sleeping Mac freezes the whole screener: no prices, no candles, no
+  alerts. In live mode the app runs macOS `caffeinate -i` while it's open (`PREVENT_SLEEP`), so the Mac
+  doesn't idle-sleep; the display can still turn off. Closing the lid on battery still sleeps it. After
+  any pause the app raises a HIGH *Computer asleep* alert with the times, shows a banner and reconnects
+  the feed at once. If the 5-min refresh makes no progress for 2 minutes while the market is open
+  (network or Dhan trouble), you get a CRITICAL *Indicator refresh* alert and an INDICATORS BEHIND
+  badge; every Dhan request gives up after 30 s (`API_REQUEST_DEADLINE_SECONDS`), DNS lookups included.
 - **Bar RVOL needs 20 live candles**, so spike alerts begin about 21 minutes after the feed connects.
   Start the app before 09:15 to have them from 09:35. The candle the feed connected in is ignored
   because it's partial. After a reconnect, volume traded while disconnected is not dumped into one

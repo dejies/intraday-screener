@@ -41,6 +41,46 @@ class DhanError(RuntimeError):
         return self.status == 429 or (self.code or "") in RATE_LIMIT_CODES
 
 
+class Deadline(Exception):
+    pass
+
+
+_inflight_lock = threading.Lock()
+_inflight = 0
+MAX_STUCK_CALLS = 8
+
+
+def call_with_deadline(fn, deadline: float):
+    """Run fn() in a helper thread and give up after `deadline` seconds. requests' own timeout covers
+    connecting and reading but not the DNS lookup, which can hang for minutes when the network or DNS
+    misbehaves; this bounds the whole call. A call that's still stuck keeps its (daemon) thread until
+    the OS gives up; while MAX_STUCK_CALLS are stuck, new calls fail at once instead of piling up."""
+    global _inflight
+    with _inflight_lock:
+        if _inflight >= MAX_STUCK_CALLS:
+            raise Deadline(f"{_inflight} earlier requests are still waiting for the network")
+        _inflight += 1
+    box: dict = {}
+    done = threading.Event()
+
+    def run():
+        global _inflight
+        try:
+            box["value"] = fn()
+        except BaseException as exc:            # handed to the caller below
+            box["error"] = exc
+        finally:
+            with _inflight_lock:
+                _inflight -= 1
+            done.set()
+    threading.Thread(target=run, daemon=True, name="dhan-http").start()
+    if not done.wait(deadline):
+        raise Deadline(f"no answer within {deadline:g} s (network, DNS or Dhan not responding)")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
 class RateLimiter:
     """Spaces calls at least 1/rate seconds apart (thread-safe)."""
 
@@ -197,13 +237,14 @@ class DhanClient(DhanInstruments):
     label = "Dhan (live)"
 
     def __init__(self, client_id: str, access_token: str, data_per_second: float = 4,
-                 cache_dir: Path | None = None, timeout: float = 15):
+                 cache_dir: Path | None = None, timeout: float = 15, deadline: float = 30):
         if not client_id or not access_token:
             raise ValueError(
                 "DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN must be set (see .env.example)."
             )
         super().__init__(cache_dir)
         self.timeout = timeout
+        self.deadline = deadline                 # whole request, DNS lookup included (call_with_deadline)
         self.session = requests.Session()
         self.session.headers.update({
             "access-token": access_token,
@@ -231,7 +272,10 @@ class DhanClient(DhanInstruments):
             limiter.wait()
             sent_with = self.session.headers.get("access-token")
             try:
-                resp = self.session.post(BASE_URL + path, json=body, timeout=self.timeout)
+                resp = call_with_deadline(lambda: self.session.post(BASE_URL + path, json=body, timeout=self.timeout),
+                                          self.deadline)
+            except Deadline as exc:
+                raise DhanError(f"Network error calling {path}: {exc}") from None
             except requests.RequestException as exc:
                 if attempt < retries:
                     _time.sleep(1 + attempt)

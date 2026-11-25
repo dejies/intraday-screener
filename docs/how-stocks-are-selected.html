@@ -154,11 +154,14 @@
   <section class="card step">
     <div class="num">4</div>
     <div>
-      <h2>Full indicator scan <span class="when">every 5 minutes</span></h2>
+      <h2>Full indicator scan <span class="when">right after each 5-min candle closes</span></h2>
       <p>Of the stocks that passed, the <strong>500 most traded</strong> get 5-minute charts and every indicator:
         MACD, RSI, ADX, the moving averages (EMAs), VWAP and today's relative volume (RVOL).</p>
       <p>Only <strong>finished</strong> 5-minute candles are used, so the numbers don't jump around while a candle is still forming.
         Stocks outside the 500 still get live prices, but not the strategy checks.</p>
+      <p>Each stock is fetched <strong>5 seconds after every 5-minute candle closes</strong>. Current candidates go first, then
+        the stocks with the biggest volume bursts in that candle, then the rest by turnover, so a sudden mover is judged
+        within seconds and all 500 within about 2 minutes.</p>
     </div>
   </section>
 

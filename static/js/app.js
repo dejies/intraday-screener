@@ -356,8 +356,8 @@
   // Per-viewer preferences (this browser only). Everything is always kept in the alert centre.
   const DEFAULT_PREFS = {
     toastMin: "MEDIUM", notifyMin: "HIGH", sound: false, confirmedOnly: false,
-    toast: { strategy_qualified: true, score_cross: true, breakout: true, rvol: true, feed: true, auth: true, data_error: true, token: true },
-    soundKinds: { strategy_qualified: true, breakout: true, feed: true, auth: true, token: true },
+    toast: { strategy_qualified: true, score_cross: true, breakout: true, rvol: true, feed: true, auth: true, data_error: true, token: true, refresh: true, sleep: true },
+    soundKinds: { strategy_qualified: true, breakout: true, feed: true, auth: true, token: true, refresh: true, sleep: true },
   };
   function loadPrefs() {
     let p = {};
@@ -658,7 +658,7 @@
       <p><strong>Filters.</strong> ${c.min_turnover_cr > 0 ? `Stocks with 20-day turnover below ₹${c.min_turnover_cr} cr or ATR below ${c.min_atr_pct}% go to “Neutral &amp; filtered”: too illiquid or too quiet to trade intraday.` : `Stocks with ATR below ${c.min_atr_pct}% go to “Neutral &amp; filtered”: too quiet to trade intraday. The turnover filter is off (Settings → Min 20-day turnover), so thinly traded stocks are included: check the bid/ask before trusting a signal.`}${priceBandText(c)}</p>
       <p><strong>Breakouts.</strong> Fire once per stock per level per day when price crosses the opening-range high/low, previous-day high/low (PDH/PDL) or 52-week high/low by more than ${c.buffer_pct}%. “Confirmed” = at least ${c.min_confirmations} of MACD, DMI, ADX, RVOL and VWAP agree.</p>
       <p><strong>Sector strength.</strong> Sector RS = sector return − NIFTY 50 return, and <em>vs Sector</em> = stock return − its sector's return, each measured from the same start time on a 5-minute grid (5/15/30/60 min ago) or the previous close (day) to now. Hover for every horizon. A sector is measured by its NSE sector index where one exists, otherwise by the median of its liquid EQ-series stocks. <em>P92</em> means the stock is beating 92% of its sector peers today. “Falling less than Nifty” marks a sector that outperforms while still going down.</p>
-      <p><strong>Live feed / all-NSE mode.</strong> Every stock streams price, day volume and the exchange's own VWAP over Dhan's WebSocket, and 1-min candles are built from those ticks, so ⚡ volume-spike alerts cover the whole universe (spike candle must trade at least ₹${c.rvol_min_value_lakh} lakh; Bar RVOL starts 20 candles after the feed connects). The full MACD/DMI/ADX scan runs on the most liquid stocks that pass the filters; ${c.breakouts_need_filters ? "breakout pop-ups are limited to those stocks" : "breakouts fire for every stock"}. Use the search box to find any stock.</p>
+      <p><strong>Live feed / all-NSE mode.</strong> Every stock streams price, day volume and the exchange's own VWAP over Dhan's WebSocket, and 1-min candles are built from those ticks, so ⚡ volume-spike alerts cover the whole universe (spike candle must trade at least ₹${c.rvol_min_value_lakh} lakh; Bar RVOL starts 20 candles after the feed connects). The full MACD/DMI/ADX scan runs on the most liquid stocks that pass the filters, refreshed right after each 5-min candle closes (strategy candidates and the stocks with the biggest volume bursts first); ${c.breakouts_need_filters ? "breakout pop-ups are limited to those stocks" : "breakouts fire for every stock"}. Use the search box to find any stock.</p>
       <p><strong>Tip.</strong> Hover a row for PDH/PDL, gap, 52-week range and turnover. Many breakouts fail; a confirmed one only means the indicators agree at that moment.</p>`;
   }
 
@@ -993,7 +993,8 @@
     $("phase").textContent = s.market_phase === "holiday" ? `NSE holiday${s.holiday ? `: ${s.holiday}` : ""} · ${s.now.slice(11, 19)} IST`
       : `market ${s.market_phase} · ${s.now.slice(11, 19)} IST`;
     $("phase").className = `badge ${s.market_phase === "holiday" ? "warn" : ""}`;
-    const badState = { stale: "DATA STALE", disconnected: "FEED DISCONNECTED", stopped: "FEED STOPPED" }[s.data_state];
+    const badState = { stale: "DATA STALE", disconnected: "FEED DISCONNECTED", stopped: "FEED STOPPED" }[s.data_state]
+      || (s.history && s.history.stalled_since ? "INDICATORS BEHIND" : "");
     $("dataState").hidden = !badState; $("dataState").textContent = badState || "";
     const br = s.breadth || {};
     if (br.advancing && br.advancing.of) {
@@ -1015,7 +1016,7 @@
       const state = f.fatal ? "stopped" : f.connected ? "live" : "reconnecting";
       $("feed").className = `badge ${f.fatal ? "err" : f.connected ? "live" : "warn"}`;
       $("feed").textContent = `Dhan feed ${state} · ${num(f.with_data, 0)}/${num(f.instruments, 0)} streaming${f.packets_per_sec !== null ? ` · ${num(f.packets_per_sec, 0)} pkt/s` : ""}${f.last_packet ? ` · last tick ${f.last_packet}` : ""}`;
-      $("universeInfo").textContent = `${s.universe === "nse" ? "All NSE equity shares" : "Watchlist"}: ${num(s.counts.rows, 0)} with live data · daily history ${num(h.daily_loaded, 0)}/${num(h.daily_total, 0)} · full indicator scan on ${num(h.deep_scanned, 0)} liquid stocks (of ${num(h.deep_candidates, 0)} passing the filters, max ${num(h.deep_max, 0)})`;
+      $("universeInfo").textContent = `${s.universe === "nse" ? "All NSE equity shares" : "Watchlist"}: ${num(s.counts.rows, 0)} with live data · daily history ${num(h.daily_loaded, 0)}/${num(h.daily_total, 0)} · full indicator scan on ${num(h.deep_scanned, 0)} liquid stocks (of ${num(h.deep_candidates, 0)} passing the filters, max ${num(h.deep_max, 0)})${h.last_fetch ? ` · last refresh ${h.last_fetch}` : ""}`;
     } else {
       $("universeInfo").textContent = `Watchlist: ${num(s.counts.rows, 0)} stocks`;
     }
@@ -1026,6 +1027,8 @@
     if (s.auth_error) { banner = `Dhan rejected the credentials: ${s.auth_error}. Generate a new access token (web.dhan.co → My Profile → Access DhanHQ APIs) and put it in .env${tk ? ": the running app loads it within a minute" : ", then restart"}.`; cls += " error"; }
     else if (tk && tk.state === "expired") { banner = `The Dhan access token expired (${tk.expires_label} IST) and can't be renewed. Generate a new one on web.dhan.co and put it in .env: the running app loads it within a minute.`; cls += " error"; }
     else if (tk && tk.state === "failing") { banner = `Access-token renewal failed: ${tk.last ? tk.last.message : "unknown error"}. Retrying every few minutes; the current token is valid until ${tk.expires_label} IST.`; cls += " error"; }
+    else if (h && h.stalled_since) { banner = `The 5-min indicator refresh has made no progress since ${h.stalled_since}: the strategy tabs, scores and breakouts are behind the market. Usually the network or Dhan; it resumes by itself.`; cls += " error"; }
+    else if (s.pause) { banner = `The computer was asleep (or the app was frozen) from ${s.pause.from} to ${s.pause.to}: prices, candles and alerts paused and are catching up, so anything from that window may show up late. Keep the Mac awake and the lid open during market hours.`; cls += " error"; }
     else if (s.data_state === "stale") { banner = `No price updates for over ${s.config.stale_seconds} seconds while the market is open: prices on screen may be out of date.`; cls += " error"; }
     else if (live && !f.connected) banner = `Live feed disconnected${f.last_error ? ` (${f.last_error})` : ""} — reconnecting automatically…`;
     else if (!s.ready) banner = live ? "Connecting to the live feed…" : "Loading candles and computing indicators… (first scan takes ~30 s for 50 stocks)";
