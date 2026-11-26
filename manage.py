@@ -71,6 +71,8 @@ def check_env(r: Report) -> None:
     env = config.ROOT / ".env"
     if not env.exists():
         r.add(WARN, ".env", "missing: copy .env.example to .env and add your Dhan credentials (demo mode works without)")
+    elif os.name == "nt":                       # Windows has ACLs, not Unix modes: nothing to check here
+        r.add(OK, ".env permissions", "not checked on Windows; keep the project inside your own user folder")
     else:
         mode = stat.S_IMODE(env.stat().st_mode)
         r.add(OK if not mode & 0o077 else WARN, ".env permissions",
@@ -103,7 +105,7 @@ def check_files(r: Report) -> None:
             r.add(WARN if what == "watchlist.csv" else FAIL, what, "missing" + (" (build it: python universe.py build)"
                                                                                if what == "watchlist.csv" else ""))
             continue
-        n = sum(1 for _ in open(p)) - (1 if p.suffix == ".csv" else 0)
+        n = sum(1 for _ in open(p, encoding="utf-8")) - (1 if p.suffix == ".csv" else 0)
         r.add(OK, what, f"{n:,} rows")
     try:
         from screener.relative_strength import load_sector_map
@@ -257,7 +259,7 @@ def cmd_backup(args) -> int:
         os.chmod(dest / ".env", 0o600)
         copied.append(".env (contains your token: keep this backup private)")
     (dest / "MANIFEST.json").write_text(json.dumps({"created": now_ist().isoformat(timespec="seconds"),
-                                                    "files": copied}, indent=1))
+                                                    "files": copied}, indent=1), encoding="utf-8")
     print(f"Backed up to {dest}:")
     for c in copied:
         print(f"  {c}")

@@ -108,7 +108,7 @@ def main() -> None:
     series = {}
     if Path(config.WATCHLIST_FILE).exists():
         import csv
-        with open(config.WATCHLIST_FILE, newline="") as fh:
+        with open(config.WATCHLIST_FILE, newline="", encoding="utf-8") as fh:
             series = {r["symbol"].upper(): r.get("series") for r in csv.DictReader(fh)}
     smap = load_sector_map(Path(cfg.SECTOR_INDEX_FILE))
     store = None
@@ -144,7 +144,7 @@ def main() -> None:
 
     variants = [] if args.no_baseline else [{"name": "baseline", "changes": {}}]
     if args.variants:
-        variants += json.loads(Path(args.variants).read_text()).get("variants", [])
+        variants += json.loads(Path(args.variants).read_text(encoding="utf-8")).get("variants", [])
     variants += [parse_variant(v) for v in args.variant]
     for v in variants:                          # fail early on a typo
         try:

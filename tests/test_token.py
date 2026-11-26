@@ -90,7 +90,8 @@ def test_env_rewrite_keeps_other_lines_and_is_private(tmp_path):
     os.chmod(env, 0o644)
     tm.write_env_token(env, "new.tok.en")
     assert env.read_text() == "# comment\nDHAN_CLIENT_ID=1000000001\nDHAN_ACCESS_TOKEN=new.tok.en\nOTHER=x\n"
-    assert stat.S_IMODE(env.stat().st_mode) == 0o600 and not (tmp_path / ".env.tmp").exists()
+    assert os.name == "nt" or stat.S_IMODE(env.stat().st_mode) == 0o600          # Windows: no Unix modes
+    assert not (tmp_path / ".env.tmp").exists()
     assert tm.read_env_token(env) == "new.tok.en"
     bare = tmp_path / "bare.env"
     bare.write_text("DHAN_CLIENT_ID=1\n")

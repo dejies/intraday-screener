@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import threading
+import time
 from datetime import datetime, time as dtime, timedelta, timezone
 from pathlib import Path
 
@@ -154,7 +155,7 @@ def renew(client_id: str, token: str, url: str = RENEW_URL, timeout: float = 15,
 def read_env_token(path: Path, key: str = ENV_KEY) -> str | None:
     """The value config.py would read (first KEY=VALUE line, quotes stripped)."""
     try:
-        text = Path(path).read_text()
+        text = Path(path).read_text(encoding="utf-8")
     except OSError:
         return None
     for raw in text.splitlines():
@@ -171,7 +172,7 @@ def write_env_token(path: Path, token: str, key: str = ENV_KEY) -> None:
     """Set KEY=token in .env, keeping every other line. Written to a temporary file (mode 600) and moved
     into place, so .env is never half-written and never readable by other users."""
     path = Path(path)
-    lines = path.read_text().splitlines() if path.exists() else []
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     out, found = [], False
     for line in lines:
         s = line.strip()
@@ -185,12 +186,19 @@ def write_env_token(path: Path, token: str, key: str = ENV_KEY) -> None:
     tmp = path.with_name(path.name + ".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        with os.fdopen(fd, "w") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
             fh.write("\n".join(out) + "\n")
             fh.flush()
             os.fsync(fh.fileno())
         os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
+        for attempt in range(5):                 # Windows: a reader or the virus scanner can hold .env briefly
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.2)
     except BaseException:
         try:
             tmp.unlink()

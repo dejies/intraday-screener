@@ -19,7 +19,7 @@ It is for learning, not investment advice.
 
 | Need | For |
 |---|---|
-| **Python 3.9 or newer** (`python3 --version`) | everything |
+| **Python 3.9 or newer**, 3.12+ recommended (`python3 --version`; Windows: `py --version`) | everything |
 | A browser (Chrome, Safari, Edge or Firefox) | the dashboard |
 | A **Dhan account with a Data API subscription** | live data only; demo mode needs nothing. The basic *Data API* plan (₹499 + GST a month) covers every feature here, so *Pro Traders* isn't needed. |
 
@@ -32,10 +32,44 @@ template and runs `manage.py check`). Then `scripts/demo.sh` or `scripts/start.s
 cd intraday-screener
 python3 -m venv .venv                      # private Python environment for this project (3.12+ recommended)
 .venv/bin/pip install -r requirements.txt  # pandas, numpy, fastapi, uvicorn, requests, websocket-client, pytest, ...
-.venv/bin/python -m pytest -q              # optional: runs the 183 tests (~2 minutes)
+.venv/bin/python -m pytest -q              # optional: runs the tests (~2 minutes)
 ```
 
-On Windows, use `.venv\Scripts\python` wherever this README says `.venv/bin/python`.
+#### On Windows
+
+1. **Install Python 3.12** from <https://www.python.org/downloads/windows/>. In the installer, tick
+   **Add python.exe to PATH**. If typing `python` opens the Microsoft Store, that's only Windows'
+   shortcut: install from python.org instead.
+2. **Open Command Prompt or PowerShell in the project folder** and run the one-time setup:
+   ```bat
+   cd C:\path\to\intraday-screener
+   scripts\setup.bat
+   ```
+   It finds Python (the `py` launcher, else `python`), creates `.venv`, installs the packages, creates
+   `.env` from the template and runs the health check. To pick a version: `set PYTHON=py -3.12` first.
+3. **Add your Dhan client ID and token** to `.env` (Notepad is fine), as in step 4 below.
+4. **Run it:**
+
+| macOS / Linux | Windows |
+|---|---|
+| `scripts/setup.sh` | `scripts\setup.bat` |
+| `scripts/demo.sh` | `scripts\demo.bat` |
+| `scripts/start.sh --watchlist nifty50.txt` | `scripts\start.bat --watchlist nifty50.txt` |
+| `scripts/backup.sh --keep 10` | `scripts\backup.bat --keep 10` |
+| `.venv/bin/python manage.py check` | `scripts\check.bat` |
+| `.venv/bin/python history.py alerts --days 1` | `scripts\run.bat history.py alerts --days 1` |
+| `.venv/bin/python -m pytest` | `scripts\run.bat -m pytest` |
+
+Anywhere else this README says `.venv/bin/python`, use `scripts\run.bat` or `.venv\Scripts\python`.
+Windows specifics:
+- **Ctrl+C:** stop the app with Ctrl+C. Windows then asks *Terminate batch job (Y/N)?*; the app has
+  already shut down by then, so either answer is fine.
+- **Sleep:** while the live app runs it keeps the PC from idle-sleeping (`PREVENT_SLEEP`). Closing the
+  lid follows your Power settings and may still sleep it.
+- **`.env` permissions:** `manage.py check` doesn't check them (Windows uses folder permissions). Keep
+  the project inside your own user folder.
+- **Text files** are read and written as UTF-8 (the scripts also set `PYTHONUTF8=1`), so the ₹ sign in
+  reports works.
 
 ### 3. Try it first without an account (demo mode)
 
@@ -796,7 +830,8 @@ scripts/backup.sh                     # database + settings + data files -> back
 app.py                  FastAPI server (pages, JSON API, /ws push), CLI, starts the engine thread
 manage.py               `check` (diagnostics) and `backup`
 pyproject.toml          package metadata, dependencies, console scripts, pytest settings
-scripts/                setup.sh, start.sh, demo.sh, backup.sh
+scripts/                setup.sh, start.sh, demo.sh, backup.sh (macOS / Linux); setup.bat, start.bat, demo.bat,
+                        backup.bat, check.bat, run.bat (Windows)
 nse_holidays.csv        NSE trading holidays and special sessions (update each December)
 history.py              backfill / status / export / alerts for the SQLite history
 backtest.py             replay saved history through the strategies (simulation only) and save a report

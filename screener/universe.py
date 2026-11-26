@@ -53,7 +53,7 @@ def download_sources(dest: Path, max_age_days: float = 1, force: bool = False) -
     """Download the NSE files into `dest` (skipping fresh copies) and record them in sources.json."""
     dest.mkdir(parents=True, exist_ok=True)
     manifest_path = dest / "sources.json"
-    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
     out = {}
     for name, (url, fname) in SOURCES.items():
         path = dest / fname
@@ -68,7 +68,7 @@ def download_sources(dest: Path, max_age_days: float = 1, force: bool = False) -
             manifest[name] = {"url": url, "file": fname, "downloaded_at": datetime.now().isoformat(timespec="seconds"),
                               "bytes": len(resp.content)}
         out[name] = path
-    manifest_path.write_text(json.dumps(manifest, indent=2))
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return out
 
 

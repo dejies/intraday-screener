@@ -42,7 +42,7 @@ class SectorBenchmark:
 
 def load_sector_map(path: Path) -> dict[str, SectorBenchmark]:
     out = {}
-    with open(path, newline="") as fh:
+    with open(path, newline="", encoding="utf-8") as fh:
         for r in csv.DictReader(fh):
             kind = r["benchmark"].strip()
             if kind not in ("index", "composite"):

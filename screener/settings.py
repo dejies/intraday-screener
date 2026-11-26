@@ -406,7 +406,7 @@ def save(path: Path, data: dict) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2, sort_keys=True))
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
     os.replace(tmp, path)                       # atomic: never a half-written file
 
 
@@ -416,7 +416,7 @@ def load(cfg, path: Path, defaults: dict) -> dict:
     if not path.exists():
         return {"applied": [], "restart": [], "errors": {}}
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         log.warning("Ignoring %s: %s", path, exc)
         return {"applied": [], "restart": [], "errors": {"file": str(exc)}}

@@ -14,6 +14,9 @@ scripts/start.sh --universe nse --no-browser
 ```
 
 The same, by hand: `.venv/bin/pip install -r requirements.txt` then `.venv/bin/python app.py …`.
+On Windows the same scripts exist as `scripts\setup.bat`, `demo.bat`, `start.bat`, `backup.bat`, plus
+`check.bat` (= `manage.py check`) and `run.bat` (any command, e.g. `scripts\run.bat history.py status`);
+see the README's *On Windows* section.
 For development, `pip install -e ".[test]"` also installs the commands `screener`, `screener-history`,
 `screener-backtest`, `screener-universe` and `screener-manage` (editable install only: `config.py` finds
 `data/`, `static/` and the CSV files next to itself).

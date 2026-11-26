@@ -306,4 +306,5 @@ def test_backup_is_consistent_and_leaves_out_env(tmp_path, monkeypatch):
     _time.sleep(1.1)
     manage.cmd_backup(SimpleNamespace(dest=str(root / "backups"), db=str(db), keep=1, include_env=True))
     left = list((root / "backups").iterdir())
-    assert len(left) == 1 and (left[0] / ".env").exists() and oct((left[0] / ".env").stat().st_mode)[-3:] == "600"
+    assert len(left) == 1 and (left[0] / ".env").exists()
+    assert os.name == "nt" or oct((left[0] / ".env").stat().st_mode)[-3:] == "600"   # Windows: no Unix modes

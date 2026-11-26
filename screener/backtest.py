@@ -785,8 +785,8 @@ def save_report(rep: dict, folder: Path, store=None) -> dict[str, str]:
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     jp, mp = folder / f"{rep['run_id']}.json", folder / f"{rep['run_id']}.md"
-    jp.write_text(json.dumps(rep, default=str, indent=1))
-    mp.write_text(report_markdown(rep))
+    jp.write_text(json.dumps(rep, default=str, indent=1), encoding="utf-8")
+    mp.write_text(report_markdown(rep), encoding="utf-8")
     if store is not None:
         store.save_backtest(rep)
     return {"json": str(jp), "markdown": str(mp)}
@@ -796,7 +796,7 @@ def list_reports(folder: Path) -> list[dict]:
     out = []
     for p in sorted(Path(folder).glob("*.json"), reverse=True):
         try:
-            rep = json.loads(p.read_text())
+            rep = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         out.append({"run_id": rep.get("run_id"), "created": rep.get("created"), "label": rep.get("label"),

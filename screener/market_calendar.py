@@ -111,7 +111,7 @@ def load_calendar(path: Path) -> Calendar:
     if not path.exists():
         log.warning("No holiday calendar at %s: exchange holidays won't be detected", path)
         return cal
-    with open(path, newline="") as fh:
+    with open(path, newline="", encoding="utf-8") as fh:
         for i, r in enumerate(csv.DictReader(fh), 2):
             try:
                 d = date.fromisoformat(r["date"].strip())

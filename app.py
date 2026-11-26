@@ -346,13 +346,40 @@ def create_app(engine: ScreenerEngine, cfg=None, settings_path: Optional[Path] =
     return app
 
 
+class _WindowsAwake:
+    """Windows: SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED) on the main thread keeps the PC
+    from idle-sleeping until terminate() (or the process ends). The display can still turn off."""
+    ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+
+    def __init__(self, kernel32):
+        self.k = kernel32
+        if not self.k.SetThreadExecutionState(self.ES_CONTINUOUS | self.ES_SYSTEM_REQUIRED):
+            raise OSError("SetThreadExecutionState failed")
+
+    def terminate(self):
+        self.k.SetThreadExecutionState(self.ES_CONTINUOUS)
+
+
 def keep_awake(cfg):
-    """macOS: stop idle sleep while this process runs (`caffeinate -i -w <pid>` ends with it). Returns the
-    process, or None when it's off or not available. A sleeping Mac freezes the whole screener."""
+    """Stop idle sleep while this process runs: macOS `caffeinate -i -w <pid>` (ends with it), Windows
+    SetThreadExecutionState. Returns a handle with terminate(), or None when it's off or not available.
+    A sleeping computer freezes the whole screener."""
     import os
     import shutil
     import subprocess
-    if not getattr(cfg, "PREVENT_SLEEP", False) or sys.platform != "darwin" or not shutil.which("caffeinate"):
+    if not getattr(cfg, "PREVENT_SLEEP", False):
+        return None
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            awake = _WindowsAwake(ctypes.windll.kernel32)
+        except (OSError, AttributeError) as exc:
+            log.warning("Couldn't keep the PC awake: %s", exc)
+            return None
+        log.info("Keeping the PC awake while the screener runs. The display can still turn off; closing the lid "
+                 "may still sleep it (Power settings). Settings → PREVENT_SLEEP to turn this off.")
+        return awake
+    if sys.platform != "darwin" or not shutil.which("caffeinate"):
         return None
     try:
         proc = subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())],

@@ -68,7 +68,7 @@ def load_watchlist(path: Path) -> list[str]:
     if path.suffix.lower() == ".csv":
         raw = pd.read_csv(path, dtype=str)["symbol"].dropna().tolist()
     else:
-        raw = [line.split("#", 1)[0] for line in path.read_text().splitlines()]
+        raw = [line.split("#", 1)[0] for line in path.read_text(encoding="utf-8").splitlines()]
     seen, out = set(), []
     for s in raw:
         sym = s.strip().upper()
@@ -101,7 +101,7 @@ def load_overrides(path: Path) -> dict[str, str]:
     """Optional CSV `symbol,security_id` for symbols the scrip master lookup misses."""
     if not Path(path).exists():
         return {}
-    with open(path, newline="") as fh:
+    with open(path, newline="", encoding="utf-8") as fh:
         return {r["symbol"].strip().upper(): str(r["security_id"]).strip()
                 for r in csv.DictReader(fh) if r.get("symbol") and r.get("security_id")}
 
