@@ -102,6 +102,9 @@ A backup holds `market.sqlite` (copied with SQLite's online-backup API, so it's 
 writes), `data/settings*.json`, `watchlist.csv`, `nifty50.txt`, `sector_indices.csv`, `nse_holidays.csv`,
 `security_ids_override.csv`, `data/backtests/` and a `MANIFEST.json`. `.env` is left out unless asked.
 
+Each backup is a full copy of the database. After a full backfill (every stock, a year of 5-min candles)
+that's about 4 GB, so keep only a few: `scripts/backup.sh --keep 3`.
+
 **Restore:** stop `app.py`, copy `market.sqlite` (and `settings*.json`) back into `data/`, then start. The
 schema upgrades itself if the backup is from an older version.
 

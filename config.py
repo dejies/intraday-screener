@@ -160,6 +160,8 @@ PREVENT_SLEEP = True            # macOS, live mode: keep the Mac awake while the
 DEEP_SCAN_MAX = 500             # most-liquid filter-passing stocks that get the full indicator scan
 DEEP_SCAN_ALL_IF_UNDER = 100    # small universes (a watchlist) get the full scan for every stock
 HISTORY_CALLS_PER_STEP = 8      # REST calls per background step (keeps the worker responsive)
+HISTORY_WORKERS = 4             # Dhan requests in flight at once (each waits ~1 s for its answer); the rate
+                                # limiter still caps the total at DATA_API_MAX_PER_SECOND
 BREAKOUT_ALERTS_REQUIRE_FILTERS = True   # no breakout pop-ups for illiquid / quiet stocks
 DASHBOARD_MAX_ROWS = 100        # rows sent per table (search finds the rest)
 # Dashboard view filter: list only stocks whose change % today (vs the previous close) is inside this

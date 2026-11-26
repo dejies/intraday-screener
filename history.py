@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import threading
 import time as _time
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -80,13 +81,24 @@ def cmd_backfill(args) -> None:
     daily_to = datetime.combine(now.date(), time())
     intervals = [] if args.daily_only else args.interval
     calls = len(series) * (1 + sum(-(-days // 89) for _ in intervals))
+    # Each request waits about a second for Dhan's answer, so the speed is min(workers, the rate limit) a second.
+    per_s = min(max(1, args.workers), config.DATA_API_MAX_PER_SECOND)
     print(f"Backfilling {len(series)} series into {args.db}: daily since {daily_from.date()}"
           + (f", {'/'.join(map(str, intervals))}-min since {intraday_from.date()}" if intervals else "")
-          + f". Up to ~{calls:,} requests (~{calls / config.DATA_API_MAX_PER_SECOND / 60:,.0f} min) on a first run;"
+          + f". Up to ~{calls:,} requests (~{calls / per_s / 60:,.0f} min at ~{per_s:g} a second) on a first run;"
           " re-runs only fetch what is missing.")
 
     t0, total, failed = _time.monotonic(), 0, []
-    for i, (name, seg, inst, sid) in enumerate(series, 1):
+    auth_failed = threading.Event()
+    lock = threading.Lock()
+    finished = [0]
+
+    def one(name, seg, inst, sid):
+        """All candles for one series. Several run at once (--workers); each request waits about a
+        second for Dhan, and the client's rate limiter keeps the total within Dhan's limit."""
+        nonlocal total
+        if auth_failed.is_set():
+            return
         parts = []
         try:
             n = client.sync(seg, sid, DAILY, daily_from, daily_to,
@@ -94,20 +106,37 @@ def cmd_backfill(args) -> None:
                                 client.inner.daily_candles(sid, a.date(), b.date(), seg, inst),
                             DAILY_CHUNK)
             parts.append(f"daily +{n}")
-            total += n
+            got = n
             for iv in intervals:
                 n = client.sync(seg, sid, str(iv), intraday_from, now,
                                 lambda a, b, sid=sid, seg=seg, inst=inst, iv=iv:
                                     client.inner.intraday_candles(sid, a, b, iv, seg, inst),
                                 INTRADAY_CHUNK)
                 parts.append(f"{iv}m +{n}")
-                total += n
-            print(f"[{i:>3}/{len(series)}] {name:<12} {'  '.join(parts)}")
+                got += n
+            with lock:
+                total += got
+                finished[0] += 1
+                print(f"[{finished[0]:>4}/{len(series)}] {name:<12} {'  '.join(parts)}", flush=True)
         except DhanError as exc:
-            failed.append(name)
-            print(f"[{i:>3}/{len(series)}] {name:<12} FAILED: {exc}")
+            with lock:
+                failed.append(name)
+                finished[0] += 1
+                print(f"[{finished[0]:>4}/{len(series)}] {name:<12} FAILED: {exc}", flush=True)
             if exc.is_auth:
-                sys.exit("Credentials rejected - generate a new token and re-run (progress so far is saved).")
+                auth_failed.set()
+
+    workers = max(1, args.workers)
+    if workers == 1:
+        for s in series:
+            one(*s)
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="backfill") as pool:
+            for f in [pool.submit(one, *s) for s in series]:
+                f.result()
+    if auth_failed.is_set():
+        sys.exit("Credentials rejected - generate a new token and re-run (progress so far is saved).")
     print(f"\nDone in {_time.monotonic() - t0:,.0f}s: {total:,} bars written, {client.fetches} API calls, "
           f"database {_db_size(args.db)}.")
     if failed:
@@ -116,19 +145,27 @@ def cmd_backfill(args) -> None:
 
 # ------------------------------------------------------------------- status
 def cmd_status(args) -> None:
+    """From the coverage table, so it's instant on a multi-GB database. Exact candle counts per series with
+    --symbol (an index lookup each); --all-rows counts every candle (scans the whole table: minutes when big)."""
     store = MarketStore(args.db)
-    rows = store.summary()
+    if args.all_rows:
+        rows = store.summary()
+    else:
+        rows = store.coverage_summary(args.symbol, rows=bool(args.symbol))
     if not rows:
-        print(f"{args.db} has no candles yet. Run: python history.py backfill")
+        print(f"Nothing stored for {args.symbol}." if args.symbol else
+              f"{args.db} has no candles yet. Run: python history.py backfill")
         return
     df = pd.DataFrame(rows)
-    if args.symbol:
+    if args.all_rows and args.symbol:
         df = df[df["symbol"].str.upper() == args.symbol.upper()]
+    df = df[[c for c in ("symbol", "interval", "rows", "first", "last") if c in df.columns]]
     df["interval"] = df["interval"].map(lambda v: "daily" if v == DAILY else f"{v}-min")
     pd.set_option("display.width", 160)
     print(df.to_string(index=False))
-    print(f"\n{len(df)} series, {df['rows'].sum():,} candles, {len(store.recent_alerts(date(2000, 1, 1)))} "
-          f"saved alerts, database {_db_size(args.db)}")
+    counts = f"{df['rows'].sum():,} candles, " if "rows" in df.columns else ""
+    print(f"\n{len(df)} series, {counts}{len(store.recent_alerts(date(2000, 1, 1)))} saved alerts, "
+          f"database {_db_size(args.db)}" + ("" if counts else "  (exact counts: --symbol X, or --all-rows)"))
 
 
 # ------------------------------------------------------------------- export
@@ -186,10 +223,14 @@ def main() -> None:
     b.add_argument("--watchlist", default=str(config.WATCHLIST_FILE))
     b.add_argument("--no-benchmark", action="store_true", help="skip the NIFTY 50 index")
     b.add_argument("--no-sector-indices", action="store_true", help="skip the NSE sector indices (needed for sector RS)")
+    b.add_argument("--workers", type=int, default=config.HISTORY_WORKERS,
+                   help="series downloaded at once (default %(default)s; Dhan's per-second limit still applies)")
     b.set_defaults(func=cmd_backfill)
 
     s = sub.add_parser("status", help="show what is stored")
-    s.add_argument("--symbol")
+    s.add_argument("--symbol", help="one symbol, with exact candle counts")
+    s.add_argument("--all-rows", action="store_true",
+                   help="exact counts for every series (scans every candle: minutes on a large database)")
     s.set_defaults(func=cmd_status)
 
     e = sub.add_parser("export", help="write one symbol's candles to CSV")

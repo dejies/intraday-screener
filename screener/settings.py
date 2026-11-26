@@ -161,6 +161,8 @@ def _fields() -> list[dict]:
           help="macOS caffeinate: no idle sleep; the display can still turn off; closing the lid on battery still sleeps it"),
         F("DATA_API_MAX_PER_SECOND", "Dhan data requests per second", "float", GROUPS[7], min=0.5, max=5, restart=True,
           help="Dhan allows 5 per second"),
+        F("HISTORY_WORKERS", "Dhan requests in flight at once", "int", GROUPS[7], min=1, max=8, restart=True,
+          help="each request waits about a second for Dhan's answer; 4 in flight reach the per-second limit"),
 
         F("TOKEN_AUTO_RENEW", "Renew the Dhan access token automatically", "bool", GROUPS[8],
           help="live mode only; the app switches to the new token without a restart and saves it in .env"),

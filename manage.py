@@ -156,12 +156,18 @@ def check_db(r: Report, path: Path, quick: bool) -> None:
         r.add(OK if v == SCHEMA_VERSION else WARN, "database", f"{path.name} {size:,.1f} MB, schema v{v}"
               + ("" if v == SCHEMA_VERSION else f" (upgrades to v{SCHEMA_VERSION} automatically on the next start)"))
         if not quick:
+            if size > 500:
+                print(f"   … checking database integrity ({size / 1000:,.1f} GB: this can take a few minutes)", flush=True)
             res = con.execute("PRAGMA quick_check").fetchone()[0]
             r.add(OK if res == "ok" else FAIL, "database integrity", res if res != "ok" else "quick_check ok")
-        rows = con.execute("SELECT segment, interval, COUNT(DISTINCT security_id), MIN(ts), MAX(ts) FROM candles "
+        # From the small coverage table (one row per series), not the candles themselves: a full scan of
+        # the candles takes minutes once a backfill has stored tens of millions of them.
+        rows = con.execute("SELECT segment, interval, COUNT(*), MIN(fetched_from), MAX(fetched_to) FROM coverage "
                            "GROUP BY segment, interval ORDER BY segment, interval").fetchall()
         for seg, iv, n, a, b in rows:
             r.add(OK, f"candles {seg} {iv if iv == 'D' else iv + '-min'}", f"{n} series, {a[:10]} to {b[:10]}")
+        if not rows and con.execute("SELECT 1 FROM candles LIMIT 1").fetchone():
+            r.add(OK, "candles", "stored (no coverage records yet: they're added by the next fetch)")
         if not any(seg == "IDX_I" and iv == "5" for seg, iv, *_ in rows):
             r.add(WARN, "index 5-min candles", "none: backtests can't measure sector RS (python history.py backfill --watchlist nifty50.txt)")
     except sqlite3.DatabaseError as exc:

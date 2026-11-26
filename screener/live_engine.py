@@ -204,48 +204,88 @@ class LiveScreenerEngine(ScreenerEngine):
             self.refresh_index_bars(now)               # NIFTY 50 + sector indices, today's 1-min candles
             done += len(self.indices)
         start = day - timedelta(days=cfg.DAILY_HISTORY_DAYS)
-        while done < budget and self.daily_pending:
-            sym = self.daily_pending.pop(0)
-            done += 1
-            try:
-                s = compute_daily_stats(self.client.daily_candles(self.ids[sym], start, day), day, cfg)
-                if s:
-                    with self.lock:
-                        self.daily[sym] = s
-                self._fetch_ok_at = now
-                self._ok()
-            except Exception as exc:
-                self._error(f"{sym}: daily candles failed: {exc}", exc)
-                if getattr(exc, "is_auth", False):
-                    self.daily_pending.insert(0, sym)
-                    return done
-        if done >= budget:
-            return done
-
         warm_start = datetime.combine((now - timedelta(days=cfg.WARMUP_CALENDAR_DAYS)).date(), PRE_OPEN)
         session = expected_session_day(now) or day
+        free = max(0, budget - done)
         with self.lock:
-            due = self.deep_due(now)
-        for sym in due[: budget - done]:
-            done += 1
-            self.deep_at[sym] = now
-            try:
-                df = self.client.intraday_candles(self.ids[sym], warm_start, now, cfg.CANDLE_INTERVAL_MIN)
-                m = compute_intraday(df, now, cfg, session_day=session)
+            # The full scan doesn't wait for the whole daily load: while both have work, each step gives it
+            # half the requests, for the stocks whose daily history is already in (most traded load first).
+            self._order_daily_pending()
+            deep = self.deep_due(now)
+            self._drop_unscanned()
+            n_deep = min(len(deep), free // 2 if self.daily_pending else free)
+            n_daily = min(len(self.daily_pending), free - n_deep)
+            n_deep = min(len(deep), free - n_daily)
+            daily_syms = self.daily_pending[:n_daily]
+            del self.daily_pending[:n_daily]
+            deep_syms = deep[:n_deep]
+            for sym in deep_syms:
+                self.deep_at[sym] = now
+        jobs = ([lambda s=sym: self._load_daily(s, start, day, now) for sym in daily_syms]
+                + [lambda s=sym: self._load_deep(s, warm_start, now, session) for sym in deep_syms])
+        self._parallel(jobs)
+        return done + len(jobs)
+
+    def _load_daily(self, sym: str, start: date, day: date, now: datetime) -> str:
+        try:
+            s = compute_daily_stats(self.client.daily_candles(self.ids[sym], start, day), day, self.cfg)
+            if s:
                 with self.lock:
-                    if m:
-                        self.intraday[sym] = m
-                        self.closes5[sym] = (df.index[-20:].to_numpy(), df["close"].to_numpy(dtype=float)[-20:])
+                    self.daily[sym] = s
+            self._fetch_ok_at = now
+            self._ok()
+            return "ok"
+        except Exception as exc:
+            self._error(f"{sym}: daily candles failed: {exc}", exc)
+            if getattr(exc, "is_auth", False):
+                with self.lock:
+                    self.daily_pending.insert(0, sym)      # retried once the credentials work again
+                return "auth"
+            return "error"
+
+    def _load_deep(self, sym: str, warm_start: datetime, now: datetime, session: date) -> str:
+        cfg = self.cfg
+        try:
+            df = self.client.intraday_candles(self.ids[sym], warm_start, now, cfg.CANDLE_INTERVAL_MIN)
+            m = compute_intraday(df, now, cfg, session_day=session)
+            with self.lock:
                 if m:
-                    self._save_snapshots({sym: m}, session)
-                    self.last_candle_update = now
-                self._fetch_ok_at = now
-                self._ok()
-            except Exception as exc:
-                self._error(f"{sym}: intraday candles failed: {exc}", exc)
-                if getattr(exc, "is_auth", False):
-                    return done
-        return done
+                    self.intraday[sym] = m
+                    self.closes5[sym] = (df.index[-20:].to_numpy(), df["close"].to_numpy(dtype=float)[-20:])
+            if m:
+                self._save_snapshots({sym: m}, session)
+                self.last_candle_update = now
+            self._fetch_ok_at = now
+            self._ok()
+            return "ok"
+        except Exception as exc:
+            self._error(f"{sym}: intraday candles failed: {exc}", exc)
+            return "auth" if getattr(exc, "is_auth", False) else "error"
+
+    def _order_daily_pending(self) -> None:
+        """Daily history load order: your priority list, then intraday-tradable (EQ) stocks, each by today's
+        traded value from the live feed (so the busiest, often the movers, are ready first), then BE/SME.
+        Call with self.lock held."""
+        if len(self.daily_pending) < 2 or not self.live:
+            return
+        pri, tradable = set(self.priority), set(self.cfg.INTRADAY_SERIES)
+
+        def key(s):
+            q = self.live.get(s) or {}
+            return (s not in pri, (self.series.get(s) or "EQ") not in tradable,
+                    -((q.get("volume") or 0) * (q.get("ltp") or 0)))
+        self.daily_pending.sort(key=key)
+
+    def _drop_unscanned(self) -> None:
+        """Forget 5-min indicators of stocks that left the full scan (e.g. pushed out of the top
+        DEEP_SCAN_MAX as more daily history loads), so they show "no data" rather than stale values.
+        Call with self.lock held."""
+        if not self.intraday:
+            return
+        keep = set(self._deep_candidates())
+        for sym in [s for s in self.intraday if s not in keep]:
+            self.intraday.pop(sym, None)
+            self.closes5.pop(sym, None)
 
     # ------------------------------------------------------------- live loop
     def _compute_spikes(self, now: datetime) -> dict[str, dict]:

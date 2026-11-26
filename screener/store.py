@@ -579,7 +579,29 @@ class MarketStore:
         return out
 
     # ------------------------------------------------------------------ stats
+    def coverage_summary(self, symbol: str | None = None, rows: bool = False) -> list[dict]:
+        """What is stored, per series, from the coverage table (instant even for a multi-GB database).
+        With rows=True, also the exact candle count and first/last candle of each series: a quick index
+        lookup per series, so meant for one symbol (--symbol)."""
+        q = ("SELECT COALESCE(i.symbol, v.segment || ':' || v.security_id) AS symbol, v.segment, v.security_id, "
+             "v.interval, v.fetched_from AS first, v.fetched_to AS last FROM coverage v "
+             "LEFT JOIN instruments i ON i.security_id = v.security_id AND i.segment = v.segment")
+        args: tuple = ()
+        if symbol:
+            q += " WHERE UPPER(COALESCE(i.symbol, v.segment || ':' || v.security_id)) = ?"
+            args = (symbol.upper(),)
+        with self._lock:
+            out = [dict(r) for r in self.conn.execute(q + " ORDER BY symbol, v.interval", args).fetchall()]
+            if rows:
+                for r in out:
+                    n, a, b = self.conn.execute(
+                        "SELECT COUNT(*), MIN(ts), MAX(ts) FROM candles WHERE segment = ? AND security_id = ? "
+                        "AND interval = ?", (r["segment"], r["security_id"], r["interval"])).fetchone()
+                    r.update(rows=n, first=a or r["first"], last=b or r["last"])
+        return out
+
     def summary(self) -> list[dict]:
+        """Exact rows per series by scanning every candle: slow on a large database; see coverage_summary."""
         with self._lock:
             rows = self.conn.execute(
                 "SELECT COALESCE(i.symbol, c.segment || ':' || c.security_id) AS symbol, c.interval, "

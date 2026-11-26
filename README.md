@@ -398,7 +398,8 @@ Build a longer history with `history.py`:
 ```bash
 .venv/bin/python history.py backfill --watchlist nifty50.txt   # 1 year of 5-min + 5 years of daily: NIFTY 50 stocks, NIFTY 50, sector indices
 .venv/bin/python history.py backfill --watchlist nifty50.txt --days 730 --interval 5 15
-.venv/bin/python history.py status                         # rows and date range per symbol
+.venv/bin/python history.py status                         # date range per symbol (instant, from the coverage table)
+python history.py status --symbol TCS            # one symbol with exact candle counts
 .venv/bin/python history.py export RELIANCE --interval 5 --from 2026-01-01 --out reliance_5m.csv
 .venv/bin/python history.py export "NIFTY 50" --interval D
 .venv/bin/python history.py alerts --days 10               # alerts the dashboard saved
@@ -615,11 +616,14 @@ Why not the full indicator scan for all 3,213? That would need about 3,200 REST 
 filters (or aren't EQ series) would land in *Neutral & filtered* anyway. They still get live prices and ⚡ spike alerts.
 
 - **Daily history.** The first run downloads 990 days of daily candles for every stock, enough
-  for a settled daily EMA200 (about 3,200 requests, roughly 13–14 minutes; a database from an
-  earlier version tops up the older days once). Each morning it then tops up yesterday's candle for
-  each stock (also about 3,200 small requests). Your watchlist loads first, then EQ stocks, then BE/SME. Either run
-  `history.py backfill --universe nse --daily-only` before 09:00, or start the app by about 08:45.
-  Stocks join the lists as their history loads; the banner shows progress.
+  for a settled daily EMA200; each morning it then tops up yesterday's candle for each stock. Either
+  way that's about 3,200 requests. Each one waits about a second for Dhan's answer, so the app keeps 4
+  in flight at once (`HISTORY_WORKERS`) and finishes in about **14 minutes** (one at a time took ~55).
+  Load order: your priority list (`nifty50.txt`), then EQ stocks by today's traded value from the live
+  feed (the busiest, often the movers, first), then BE/SME. The full indicator scan doesn't wait for
+  the whole load: it starts on the stocks already loaded and shares every step with it. To be fully
+  ready at 09:15, run `history.py backfill --daily-only --daily-days 990` before 09:00 or start the app
+  by about 08:55. Stocks join the lists as their history loads; the banner shows progress.
 - **Keep the Mac awake.** A sleeping Mac freezes the whole screener: no prices, no candles, no
   alerts. In live mode the app runs macOS `caffeinate -i` while it's open (`PREVENT_SLEEP`), so the Mac
   doesn't idle-sleep; the display can still turn off. Closing the lid on battery still sleeps it. After

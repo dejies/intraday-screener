@@ -10,6 +10,7 @@ import math
 import threading
 import time as _time
 from collections import Counter, deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -689,6 +690,7 @@ class ScreenerEngine:
         self.config_id, config_text = strategy_config_json(cfg)
         self.errors: deque[dict] = deque(maxlen=30)
         self.auth_error: str | None = None
+        self._pool: ThreadPoolExecutor | None = None   # parallel Dhan requests (see _parallel)
         self.bench = {"name": cfg.BENCHMARK["name"], "ltp": None, "prev_close": None,
                       "chg_pct": None, "source": None, "enabled": True}
         self._daily_for: date | None = None
@@ -831,18 +833,38 @@ class ScreenerEngine:
             except Exception as exc:
                 self._error(f"Index {name}: daily candles failed: {exc}", exc)
 
+    def _workers(self) -> int:
+        """Dhan requests to keep in flight at once. The simulated client has no network wait: one."""
+        if "DEMO" in str(getattr(self.client, "label", "")):
+            return 1
+        return max(1, int(getattr(self.cfg, "HISTORY_WORKERS", 4) or 1))
+
+    def _parallel(self, jobs: list) -> list:
+        """Run callables at once, up to HISTORY_WORKERS. Each Dhan request spends about a second waiting for
+        the answer, so one at a time manages ~1 a second; the client's rate limiter still caps the total at
+        DATA_API_MAX_PER_SECOND. Jobs handle their own errors. Results come back in order."""
+        n = self._workers()
+        if n <= 1 or len(jobs) <= 1:
+            return [job() for job in jobs]
+        if self._pool is None:
+            self._pool = ThreadPoolExecutor(max_workers=n, thread_name_prefix="dhan-fetch")
+        return [f.result() for f in [self._pool.submit(job) for job in jobs]]
+
     def refresh_index_bars(self, now: datetime) -> None:
-        """Today's 1-min candles for NIFTY 50 and the sector indices (one request each, cached)."""
+        """Today's 1-min candles for NIFTY 50 and the sector indices (one request each, cached, in parallel)."""
         day = self.session_day or expected_session_day(now) or now.date()
         start = datetime.combine(day, PRE_OPEN)
-        got = {}
-        for sid, name in self.indices.items():
+
+        def one(sid, name):
             try:
                 df = self.client.intraday_candles(sid, start, now, 1, "IDX_I", "INDEX")
                 if df is not None and not df.empty:
-                    got[sid] = (df.index.to_numpy(), df["close"].to_numpy(dtype=float))
+                    return sid, (df.index.to_numpy(), df["close"].to_numpy(dtype=float))
             except Exception as exc:
                 self._error(f"Index {name}: 1-min candles failed: {exc}", exc)
+            return sid, None
+        got = {sid: v for sid, v in self._parallel([lambda s=sid, n=name: one(s, n) for sid, name in self.indices.items()])
+               if v is not None}
         with self.lock:
             self.index_bars.update(got)
             self._index_bars_at = now
