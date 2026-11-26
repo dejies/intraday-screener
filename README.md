@@ -230,7 +230,7 @@ bullish and bearish tables in the terminal, and exits.
 | `EMA_STACK_VOTE`, `DAILY_EMA_STACK_VOTE` | True, True | `False` drops that EMA vote (each one removed lowers the maximum score of 9 by 1) |
 | `RVOL_ALERT_THRESHOLD` | 2.5 | how big a volume spike must be to alert |
 | `RVOL_ALERT_MIN_BAR_VALUE` | ₹25,00,000 | ignore spikes in stocks trading less than this per minute |
-| `DEEP_SCAN_MAX` | 500 | fewer stocks in the full scan (fewer API calls) in all-NSE mode |
+| `DEEP_SCAN_MAX` | 800 | stocks in the full scan in all-NSE mode, picked by expected turnover today (fewer = fewer API calls) |
 | `DATA_API_MAX_PER_SECOND` | 4 | stay below Dhan's limit of 5 requests a second |
 
 Every formula and threshold is explained in [technical_indicators_calculations.md](technical_indicators_calculations.md).
@@ -609,7 +609,7 @@ treatment, edit `NSE_STOCK_SERIES` and `INTRADAY_SERIES` in `config.py`.
 | Price, day volume, day open/high/low, VWAP, % change, relative strength | **all** (3,213) | WebSocket Quote packets (VWAP = Dhan's average trade price), prev close packet |
 | 1-min candles → **Bar RVOL ⚡ alerts** | **all** | built from the ticks (as in the reference project) |
 | PDH/PDL, 52-week levels, ATR, turnover (the filters) | **all** | daily candles over REST, loaded in the background, cached in SQLite |
-| MACD, +DI/−DI, ADX, Day RVOL, opening range → **bullish/bearish lists, breakout alerts** | the **500 most liquid stocks that pass the filters** (`DEEP_SCAN_MAX`) | 5-min candles over REST, fetched right after each 5-min candle closes (+5 s): strategy candidates first, then the stocks with the biggest 1-min volume bursts in that candle (from the feed), then by turnover. A whole pass takes about 2 minutes at Dhan's rate |
+| MACD, +DI/−DI, ADX, Day RVOL, opening range → **bullish/bearish lists, breakout alerts** | the **800 most active stocks that pass the filters** (`DEEP_SCAN_MAX`), by *expected turnover today*: the 20-day average, or today's traded value so far scaled to a full day, whichever is larger. A stock already in keeps its place unless a newcomer is 25% ahead (`DEEP_SCAN_KEEP_MARGIN`); re-picked every minute | 5-min candles over REST, fetched right after each 5-min candle closes (+5 s): strategy candidates first, then the stocks with the biggest 1-min volume bursts in that candle (from the feed), then by turnover. A whole pass of 800 takes about 3½ minutes at Dhan's rate |
 
 Why not the full indicator scan for all 3,213? That would need about 3,200 REST requests every
 5 minutes (more than 13 minutes per pass at Dhan's rate). Stocks that fail the turnover and ATR
@@ -641,8 +641,9 @@ filters (or aren't EQ series) would land in *Neutral & filtered* anyway. They st
   *Breakouts: only confirmed ones* in *Alert settings* is recommended.
 - **Dashboard.** Each table shows the top 100 (`DASHBOARD_MAX_ROWS`) with the full count. Use the
   search box to find any stock.
-- **Daily API usage.** About 3,200 daily requests plus 500 stocks × 75 five-minute bars ≈ 41,000 requests a day. Check
-  this against your Dhan plan's daily Data API limit, and lower `DEEP_SCAN_MAX` if needed. The WebSocket itself
+- **Daily API usage.** About 3,200 daily requests, plus 800 stocks × 75 five-minute bars, plus the index candles: about
+  67,000 requests a day. Dhan's Data API limit is reported as 100,000 a day (5 a second); if yours is lower, lower
+  `DEEP_SCAN_MAX`. The WebSocket itself
   isn't counted per request.
 - **Feed health.** The header badge shows the connection, how many instruments are streaming, and
   packets per second. The feed reconnects automatically, backing off up to 30 s. A "token expired"
@@ -760,8 +761,8 @@ Treat each value as a hypothesis to test, not a rule.
 - The strategies and setup-score weights are the spec's **initial** values. None of them has been
   backtested yet (step 7), so treat a qualified candidate as "worth a look", not as a signal.
 - The strategies are long-side only, as in the spec. Bearish setups appear only on the votes tab.
-- Strategies need intraday indicators, so in all-NSE mode only the deep-scan stocks (the 500 most liquid
-  that pass the filters) can qualify.
+- Strategies need intraday indicators, so in all-NSE mode only the full-scan stocks (the 800 most active by
+  expected turnover today, among those that pass the filters) can qualify.
 - Alerts appear in the browser only while the dashboard is open; email / Telegram channels aren't built
   (the alert centre has a `sinks` hook for them).
 - The alert thresholds, scopes and cooldowns are first guesses. Expect to tune them after a few live

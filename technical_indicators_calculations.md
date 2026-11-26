@@ -61,7 +61,7 @@ calculated, which candles it uses, and how it feeds the bullish/bearish lists an
 | Last traded price (LTP) | REST LTP quote every 5 s | WebSocket Quote packet (real time) |
 | VWAP | Calculated from 5-min candles (§9) | Dhan's **ATP** (average trade price) from the feed |
 | 1-min candles (Bar RVOL) | REST 1-min candles | Built from the live ticks (§16) |
-| 5-min candles (MACD, DMI, OR, Day RVOL) | REST, every 60 s | REST, once per 5-min bar, for the most liquid EQ stocks only |
+| 5-min candles (MACD, DMI, OR, Day RVOL) | REST, every 60 s | REST, once per 5-min bar, for the 800 most active EQ stocks only (expected turnover today) |
 | Daily candles | REST, once per day | REST, once per day, for every stock |
 | Previous close | Daily candles | Daily candles, or the feed's Prev Close packet until those load |
 
@@ -255,7 +255,7 @@ there's **no stack** tag: the short-term average has dipped under the medium one
 
 - **EMA vote** (§18.1, `EMA_STACK_VOTE`): stack ↑ is a bullish vote, stack ↓ a bearish vote, and mixed gives no vote.
 - **Context only:** the individual dots and the 9×20 tag aren't part of the score, and the EMAs aren't a breakout confirmation. In all-NSE mode they're available only for stocks in the full
-indicator scan: the most liquid EQ stocks that pass the filters in §18.3. Change the periods with
+indicator scan: the 800 most active EQ stocks (by expected turnover today) that pass the filters in §18.3. Change the periods with
 `EMA_PERIODS` in `config.py`.
 
 ### EMA alignment and EMA20 slope (EMA 5m tooltip)
@@ -901,7 +901,7 @@ and one that closed at ₹1,010 stays out even if it falls below ₹1,000. (The 
 while a stock has no previous close.) Unlike the other filters, the band also applies to alerts:
 stocks outside it get no ⚡ volume-spike alerts and no breakout alerts, even with
 `BREAKOUT_ALERTS_REQUIRE_FILTERS` off, and in all-NSE mode they don't take full-scan slots
-(`DEEP_SCAN_MAX`), which go to the most liquid stocks inside the band.
+(`DEEP_SCAN_MAX`), which go to the most active stocks inside the band.
 
 ### 18.4 Ranking
 

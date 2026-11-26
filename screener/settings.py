@@ -47,7 +47,8 @@ def _fields() -> list[dict]:
         F("INTRADAY_SERIES", "Series that get the full scan", "multi", GROUPS[0],
           options=["EQ", "BE", "BZ", "SM", "ST", "SZ"], min_items=1,
           help="BE/BZ are trade-for-trade and SM/ST/SZ are SME: normally not traded intraday"),
-        F("DEEP_SCAN_MAX", "Stocks in the full indicator scan (all-NSE mode)", "int", GROUPS[0], min=10, max=3000),
+        F("DEEP_SCAN_MAX", "Stocks in the full indicator scan (all-NSE mode)", "int", GROUPS[0], min=10, max=3000,
+          help="chosen by expected turnover today (20-day average, or today's value so far scaled up, whichever is larger)"),
     ]
     names = {"strong_momentum": "Strong Momentum", "early_breakout": "Early Breakout", "sector_leaders": "Sector Leaders"}
     for k in STRATEGY_KEYS:

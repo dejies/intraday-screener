@@ -38,6 +38,30 @@ def last_candle_close(now: datetime, interval_min: int, settle_s: float = 0) -> 
     return start + step * int((t - start) / step)
 
 
+def session_fraction(now: datetime) -> float | None:
+    """How much of today's session has passed (0.05 to 1), or None before the open / on a closed day.
+    The floor stops the first minutes' volume from being scaled up absurdly."""
+    times = get_calendar().session_times(now.date())
+    if not times:
+        return None
+    start, end = datetime.combine(now.date(), times[0]), datetime.combine(now.date(), times[1])
+    if now <= start:
+        return None
+    return max(0.05, min(1.0, (now - start) / (end - start)))
+
+
+def expected_turnover_cr(avg_cr: float | None, quote: dict | None, frac: float | None) -> float:
+    """Expected traded value today, Rs crore: the 20-day average, or today's value so far (day volume x
+    the exchange's average price) scaled to a full session, whichever is larger."""
+    avg = avg_cr or 0.0
+    if not quote or frac is None:
+        return avg
+    vol, px = quote.get("volume") or 0, quote.get("atp") or quote.get("ltp") or 0
+    if not vol or not px:
+        return avg
+    return max(avg, vol * px / 1e7 / frac)
+
+
 def _fmt_gap(seconds: float) -> str:
     m, s = divmod(int(round(seconds)), 60)
     return f"{m} min {s:02d} s" if m else f"{s} s"
@@ -109,17 +133,44 @@ class LiveScreenerEngine(ScreenerEngine):
         return since.replace(second=0, microsecond=0) + timedelta(minutes=1) if since else None
 
     def _deep_candidates(self) -> list[str]:
+        """The stocks that get the full indicator scan: filter-passing, intraday-tradable, ranked by
+        *expected turnover today* = the larger of the 20-day average and today's traded value so far
+        scaled to a full session (see expected_turnover_cr). So a stock that suddenly trades 50x its
+        usual value (a sector rally) joins within minutes instead of being stuck behind the 20-day
+        ranking. A stock already in the scan keeps its place unless a newcomer beats it by
+        DEEP_SCAN_KEEP_MARGIN, so the edge doesn't flicker; recomputed at most once a minute.
+        Call with self.lock held."""
         cfg, stats = self.cfg, self.daily
-        tradable = [s for s in stats if (self.series.get(s) or "EQ") in cfg.INTRADAY_SERIES]
-        if len(self.ids) <= cfg.DEEP_SCAN_ALL_IF_UNDER:
-            cands = tradable
+        ids = getattr(self, "ids", {}) or {}
+        client = getattr(self, "client", None)
+        now = client.now() if client is not None else None
+        key = (len(stats), now.replace(second=0, microsecond=0) if now else None, cfg.DEEP_SCAN_MAX, cfg.MIN_ATR_PCT,
+               getattr(cfg, "MIN_PRICE", 0), getattr(cfg, "MAX_PRICE", 0), getattr(cfg, "MIN_AVG_TURNOVER_CR", 0),
+               tuple(cfg.INTRADAY_SERIES), len(ids))
+        cache = getattr(self, "_deep_cache", None)
+        if cache is not None and cache[0] == key:
+            return cache[1]
+        series = getattr(self, "series", {}) or {}
+        tradable = [s for s in stats if (series.get(s) or "EQ") in cfg.INTRADAY_SERIES]
+        if len(ids) <= cfg.DEEP_SCAN_ALL_IF_UNDER:
+            cands = sorted(tradable, key=lambda s: -(stats[s].avg_turnover_cr or 0))
         else:
             min_turnover = getattr(cfg, "MIN_AVG_TURNOVER_CR", 0) or 0       # 0 = no turnover filter
-            cands = [s for s in tradable if (min_turnover <= 0 or (stats[s].avg_turnover_cr or 0) >= min_turnover)
-                     and (stats[s].atr_pct or 0) >= cfg.MIN_ATR_PCT
-                     and price_band_reason({"pdc": stats[s].pdc}, cfg) is None]
-        cands.sort(key=lambda s: -(stats[s].avg_turnover_cr or 0))
-        return cands[:cfg.DEEP_SCAN_MAX]
+            elig = [s for s in tradable if (min_turnover <= 0 or (stats[s].avg_turnover_cr or 0) >= min_turnover)
+                    and (stats[s].atr_pct or 0) >= cfg.MIN_ATR_PCT
+                    and price_band_reason({"pdc": stats[s].pdc}, cfg) is None]
+            live = getattr(self, "live", {}) or {}
+            frac = session_fraction(now) if now else None
+            prev = set(cache[1]) if cache else set()
+            bonus = 1 + float(getattr(cfg, "DEEP_SCAN_KEEP_MARGIN", 0.25) or 0)
+
+            def score(s):
+                v = expected_turnover_cr(stats[s].avg_turnover_cr, live.get(s), frac)
+                return v * bonus if s in prev else v
+            cands = sorted(elig, key=lambda s: (-score(s), -(stats[s].avg_turnover_cr or 0)))
+        cands = cands[:cfg.DEEP_SCAN_MAX]
+        self._deep_cache = (key, cands)
+        return cands
 
     def _ok(self) -> None:
         if self.auth_error and not getattr(self.feed, "fatal", None):

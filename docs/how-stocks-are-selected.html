@@ -103,7 +103,7 @@
       <div class="frow"><div class="flabel">Normal "EQ" shares</div><div class="ftrack"><div class="fbar" style="width:74.7%"></div></div><div class="fcount">2,411</div></div>
       <div class="frow"><div class="flabel">Usually move ≥ 1.5% a day</div><div class="ftrack"><div class="fbar" style="width:74.7%"></div></div><div class="fcount">2,409</div></div>
       <div class="frow"><div class="flabel">Closed at ₹1,000 or less<small>yesterday's close</small></div><div class="ftrack"><div class="fbar" style="width:61.3%"></div></div><div class="fcount">1,976</div></div>
-      <div class="frow"><div class="flabel">Get the full indicator scan<small>the 500 most traded</small></div><div class="ftrack"><div class="fbar" style="width:15.5%"></div></div><div class="fcount">500</div></div>
+      <div class="frow"><div class="flabel">Get the full indicator scan<small>the 500 most traded (now 800 most active)</small></div><div class="ftrack"><div class="fbar" style="width:15.5%"></div></div><div class="fcount">500</div></div>
       <div class="frow"><div class="flabel">Bullish or bearish by the votes<small>81 bullish · 235 bearish</small></div><div class="ftrack"><div class="fbar" style="width:9.8%"></div></div><div class="fcount">316</div></div>
       <div class="frow"><div class="flabel">Strategy candidates<small>passed every check of a strategy</small></div><div class="ftrack"><div class="fbar" style="width:0.1%"></div></div><div class="fcount">3</div></div>
     </div>
@@ -155,7 +155,7 @@
     <div class="num">4</div>
     <div>
       <h2>Full indicator scan <span class="when">right after each 5-min candle closes</span></h2>
-      <p>Of the stocks that passed, the <strong>500 most traded</strong> get 5-minute charts and every indicator:
+      <p>Of the stocks that passed, the <strong>800 most active</strong> get 5-minute charts and every indicator. "Most active" means the <strong>expected turnover today</strong>: the 20-day average, or today's traded value so far scaled to a full day, whichever is larger, so a stock that suddenly trades many times its usual amount joins within minutes. The indicators are
         MACD, RSI, ADX, the moving averages (EMAs), VWAP and today's relative volume (RVOL).</p>
       <p>Only <strong>finished</strong> 5-minute candles are used, so the numbers don't jump around while a candle is still forming.
         Stocks outside the 500 still get live prices, but not the strategy checks.</p>
@@ -295,7 +295,7 @@
     <p>Take a ₹290 stock that usually moves 5% a day and is up 9% today:</p>
     <ol>
       <li>It's an EQ share, closed under ₹1,000 and usually moves more than 1.5%, so it <strong>passes the filters</strong> (step 3).</li>
-      <li>If it's among the 500 most traded, it gets the <strong>full scan</strong> (step 4).</li>
+      <li>If it's among the 800 most active, it gets the <strong>full scan</strong> (step 4).</li>
       <li>Price above VWAP, MACD up, beating NIFTY: it's probably <strong>Bullish</strong> (step 5).</li>
       <li>For <strong>Strong Momentum</strong> it also needs volume over 2.5× normal <em>and</em> a sector beating NIFTY (step 6).
         If either is missing, it isn't a candidate, even with a 9% move.</li>

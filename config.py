@@ -188,7 +188,8 @@ API_REQUEST_DEADLINE_SECONDS = 30   # a Dhan request still unanswered by then fa
 SLEEP_GAP_SECONDS = 30          # a pause this long between live refreshes means the computer slept (or froze)
 PREVENT_SLEEP = True            # macOS, live mode: keep the Mac awake while the app runs (caffeinate -i).
                                 # The display can still turn off; closing the lid on battery still sleeps it.
-DEEP_SCAN_MAX = 500             # most-liquid filter-passing stocks that get the full indicator scan
+DEEP_SCAN_MAX = 800             # filter-passing stocks in the full indicator scan, by expected turnover today
+DEEP_SCAN_KEEP_MARGIN = 0.25    # a stock in the scan stays unless a newcomer's expected turnover is 25% higher
 DEEP_SCAN_ALL_IF_UNDER = 100    # small universes (a watchlist) get the full scan for every stock
 HISTORY_CALLS_PER_STEP = 8      # REST calls per background step (keeps the worker responsive)
 HISTORY_WORKERS = 4             # Dhan requests in flight at once (each waits ~1 s for its answer); the rate
