@@ -54,6 +54,37 @@ TOKEN_RENEW_RETRY_MINUTES = 5           # after a failed renewal, try again this
 TOKEN_VALIDITY_HOURS = 24               # Dhan's token lifetime (used when the token has no "issued at")
 TOKEN_RENEW_URL = "https://api.dhan.co/v2/RenewToken"
 
+# --- World news tab (screener/news.py) -------------------------------------------
+# Public RSS feeds, fetched at these IST times every day (and by "Refresh now"); only the headline, time,
+# the publisher's short summary and the link are shown. "group" picks the section: World, India, or
+# India markets (its own section). Google News searches give Moneycontrol, whose own RSS stopped in 2024.
+NEWS_ENABLED = True
+NEWS_FETCH_TIMES = ("06:00", "08:00", "10:00", "12:00", "14:00", "18:00", "20:00", "22:00")
+NEWS_KEEP_DAYS = 3
+_GN = "https://news.google.com/rss/search?hl=en-IN&gl=IN&ceid=IN:en&q="
+NEWS_FEEDS = [
+    {"name": "CNBC Economy", "group": "World", "url": "https://www.cnbc.com/id/20910258/device/rss/rss.html"},
+    {"name": "CNBC World", "group": "World", "url": "https://www.cnbc.com/id/100727362/device/rss/rss.html"},
+    {"name": "BBC Business", "group": "World", "url": "https://feeds.bbci.co.uk/news/business/rss.xml"},
+    {"name": "Al Jazeera", "group": "World", "url": "https://www.aljazeera.com/xml/rss/all.xml",
+     "link_contains": "/economy/"},                      # its only feed covers everything: keep the economy section
+    {"name": "Google News: world economy", "group": "World", "url": _GN + "world+economy", "google": True},
+    {"name": "Economic Times", "group": "India", "url": "https://economictimes.indiatimes.com/news/economy/rssfeeds/1373380680.cms"},
+    {"name": "ET Markets", "group": "India", "url": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"},
+    {"name": "Mint", "group": "India", "url": "https://www.livemint.com/rss/economy"},
+    {"name": "Business Standard", "group": "India", "url": "https://www.business-standard.com/rss/economy-102.rss"},
+    {"name": "Moneycontrol", "group": "India", "google": True, "publisher_is_feed": True,
+     "url": _GN + "site:moneycontrol.com/news/business/economy+when:1d"},
+    {"name": "RBI press releases", "group": "India", "official": True, "url": "https://www.rbi.org.in/pressreleases_rss.xml",
+     "title_excludes": r"auction|result|money market operations|weekly statistical|reserve money|lending facility|"
+                       r"variable rate|treasury bill|government securities"},          # routine market operations
+    {"name": "Mint Markets", "group": "India markets", "url": "https://www.livemint.com/rss/markets"},
+    {"name": "BS Markets", "group": "India markets", "url": "https://www.business-standard.com/rss/markets-106.rss"},
+    {"name": "Moneycontrol Markets", "group": "India markets", "google": True, "publisher_is_feed": True,
+     "url": _GN + "site:moneycontrol.com/news/business/markets+when:1d", "title_excludes": r"forum"},
+]
+NEWS_SOURCES = tuple(f["name"] for f in NEWS_FEEDS)     # the ones switched on (Settings page)
+
 # --- Polling ------------------------------------------------------------------
 LTP_POLL_SECONDS = 5            # live prices: Dhan quote API allows 1 req/sec, 1000 instruments/req
 CANDLE_POLL_SECONDS = 60        # indicator refresh: one intraday-candle request per stock

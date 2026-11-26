@@ -139,7 +139,7 @@ SECURITY_HEADERS = {
 
 
 def create_app(engine: ScreenerEngine, cfg=None, settings_path: Optional[Path] = None,
-               settings_defaults: Optional[dict] = None, tokens=None):
+               settings_defaults: Optional[dict] = None, tokens=None, news=None):
     """FastAPI app: static dashboard, JSON API, and /ws for incremental pushes.
 
     Local-only safety: requests must name a local Host (stops DNS-rebinding pages), POST bodies must
@@ -226,6 +226,21 @@ def create_app(engine: ScreenerEngine, cfg=None, settings_path: Optional[Path] =
             t = tokens.status()
             h["token"] = {k: t[k] for k in ("state", "expires", "hours_left", "auto_renew")}
         return JSONResponse(h, status_code=200 if h["status"] == "ok" else 503)
+
+    @app.get("/api/news")
+    def news_view(hours: float = 24):
+        """Stories of the last `hours` (World, India, India markets), feed status and the schedule."""
+        if news is None:
+            return {"available": False, "reason": "news is switched off (Settings → World news)"}
+        return news.view(max(1.0, min(hours, 24 * 30)))
+
+    @app.post("/api/news/refresh")
+    async def news_refresh(request: Request):
+        if await json_body(request) is None:
+            return JSONResponse({"error": "send JSON (Content-Type: application/json)"}, status_code=415)
+        if news is None:
+            return JSONResponse({"error": "news is switched off"}, status_code=409)
+        return await run_in_threadpool(news.fetch_all, "manual")
 
     @app.get("/api/token")
     def token_status():
@@ -482,9 +497,16 @@ def main() -> None:
                               feed=getattr(engine, "feed", None), engine=engine, also_update=[config],
                               add_secret=logs.add_secret)
         engine.token_status = tokens.status
+    news = None
+    if getattr(cfg, "NEWS_ENABLED", False):        # World news tab (screener/news.py): public RSS, not Dhan
+        from screener.news import NewsManager
+        news = NewsManager(cfg, store=store)
+        engine.news_status = news.brief
     threading.Thread(target=engine.run_forever, args=(stop,), daemon=True, name="screener").start()
     if tokens is not None:
         tokens.start(stop)
+    if news is not None:
+        news.start(stop)
     url = f"http://{cfg.HOST}:{args.port}"
     log.info("Dashboard on %s  (source: %s, universe: %s, %d symbols, history: %s)", url, client.label,
              args.universe, len(engine.symbols), store.label if store else "off")
@@ -492,7 +514,7 @@ def main() -> None:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     try:
         import uvicorn
-        app = create_app(engine, cfg, settings_path, defaults, tokens=tokens)
+        app = create_app(engine, cfg, settings_path, defaults, tokens=tokens, news=news)
         uvicorn.run(app, host=cfg.HOST, port=args.port, log_level="warning", ws_max_size=1 << 20,
                     log_config=None)                 # use our logging: JSON file, redaction
     finally:

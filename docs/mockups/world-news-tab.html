@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>World News Tab</title>
+<style>
+  :root { --bg:#f5f6f8; --panel:#fff; --text:#1a1f26; --muted:#5d6877; --border:#e1e5ea; --bull:#0b7a43; --bull-bg:#e3f4ea;
+          --bear:#c0262d; --accent:#2b59e0; --chip:#eef1f5; --warn:#8a5300; --warn-bg:#fff3dc; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0e1115; --panel:#161a20; --text:#e5e8ed; --muted:#97a2af;
+          --border:#283039; --bull:#3ecf8e; --bull-bg:#10291d; --bear:#ff6b6f; --accent:#7ea3ff; --chip:#222831; --warn:#f2b558; --warn-bg:#2c220f; } }
+  :root[data-theme="dark"] { --bg:#0e1115; --panel:#161a20; --text:#e5e8ed; --muted:#97a2af; --border:#283039; --bull:#3ecf8e; --bull-bg:#10291d;
+          --bear:#ff6b6f; --accent:#7ea3ff; --chip:#222831; --warn:#f2b558; --warn-bg:#2c220f; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .mock { background:var(--warn-bg); color:var(--warn); padding:8px 16px; font-size:13px; text-align:center; }
+  header { background:var(--panel); border-bottom:1px solid var(--border); padding:10px 16px; display:flex; gap:8px 14px; flex-wrap:wrap; align-items:center; }
+  h1 { font-size:17px; margin:0 6px 0 0; }
+  .badge { padding:2px 8px; border-radius:999px; background:var(--chip); font-size:12px; white-space:nowrap; }
+  .badge.live { background:var(--bull-bg); color:var(--bull); }
+  main { padding:16px; max-width:1200px; margin:0 auto; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:16px; }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; border-bottom:1px solid var(--border); padding-bottom:10px; margin-bottom:12px; }
+  button { font:inherit; padding:5px 12px; border-radius:999px; border:1px solid var(--border); background:var(--panel); color:var(--text); cursor:pointer; }
+  .tabs button[aria-selected="true"] { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .n { opacity:.7; margin-left:3px; }
+  .muted { color:var(--muted); font-size:12px; }
+  .bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .bar .right { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .digest { border-left:3px solid var(--accent); }
+  .digest h2, .feeds h2 { font-size:15px; margin:0 0 8px; }
+  .digest p { margin:6px 0; }
+  .label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0 2px; }
+  .chip[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .filters { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:10px 0 4px; }
+  select, input[type=search] { font:inherit; padding:5px 9px; border-radius:8px; border:1px solid var(--border); background:var(--panel); color:var(--text); }
+  input[type=search] { min-width:min(260px, 100%); }
+  .item { display:grid; grid-template-columns:86px 1fr; gap:12px; padding:11px 2px; border-bottom:1px solid var(--border); }
+  .item:last-child { border-bottom:0; }
+  .when { display:flex; flex-direction:column; font-variant-numeric:tabular-nums; }
+  .src { font-size:12px; color:var(--muted); font-weight:600; }
+  .hl { display:inline-block; color:var(--text); font-weight:650; font-size:15px; text-decoration:none; margin:2px 0; }
+  .hl:hover { color:var(--accent); text-decoration:underline; }
+  .ext { color:var(--muted); font-weight:400; font-size:12px; }
+  .sum { margin:2px 0 6px; color:var(--muted); }
+  .tags { display:flex; gap:5px; flex-wrap:wrap; }
+  .tg { font-size:11px; padding:1px 7px; border-radius:999px; background:var(--chip); }
+  .tg.rg { background:transparent; border:1px solid var(--border); color:var(--muted); }
+  .st.new { display:inline-block; font-size:10px; font-weight:700; padding:0 5px; border-radius:6px; margin-left:6px; background:var(--bull); color:#fff; }
+  .feeds ul { margin:6px 0; padding-left:0; list-style:none; columns:2; font-size:13px; }
+  .feeds li { margin:3px 0; break-inside:avoid; }
+  .up { color:var(--bull); } .down { color:var(--bear); }
+  footer { color:var(--muted); font-size:12px; text-align:center; padding:4px 16px 24px; }
+  @media (max-width: 640px) {
+    main { padding:12px; } .item { grid-template-columns:1fr; gap:4px; } .when { flex-direction:row; gap:8px; }
+    .feeds ul { columns:1; } .bar .right { margin-left:0; }
+  }
+  .seg { display:inline-flex; border:1px solid var(--border); border-radius:999px; overflow:hidden; }
+  .seg button { border:0; border-radius:0; padding:5px 12px; }
+  .seg button[aria-pressed="true"] { background:var(--accent); color:#fff; }
+  .st.off { display:inline-block; font-size:10px; font-weight:700; padding:0 5px; border-radius:6px; margin-left:6px; background:var(--warn-bg); color:var(--warn); }
+</style>
+</head>
+<body>
+<div class="mock">Sample for review: a new <b>World news</b> tab. The headlines below are real (fetched 26 Nov about 16:50 IST from the sources at the bottom); nothing here is built into the app yet.</div>
+<header>
+  <h1>Intraday Screener</h1>
+  <span class="badge live">Dhan (live)</span><span class="badge">market closed · 16:50:00 IST</span><span class="badge">NIFTY 50 25,961.40 +0.55%</span>
+</header>
+<main>
+  <section class="panel">
+    <nav class="tabs">
+      <button>All candidates <span class="n">5</span></button><button>Strong Momentum <span class="n">2</span></button>
+      <button>Early Breakout <span class="n">1</span></button><button>Sector Leaders <span class="n">2</span></button>
+      <button>Bullish / Bearish (votes)</button><button>Alert history <span class="n">131</span></button>
+      <button aria-selected="true">World news <span class="n">260</span></button>
+    </nav>
+    <div class="bar">
+      <span><b>Economic news</b> · 260 stories in the last 24 h (68 world, 192 India) from 14 sources</span>
+      <span class="muted">updated 16:50 · next update 18:00 (scheduled 08:00, 12:30, 18:00 IST)</span>
+      <span class="right"><button>Refresh now</button></span>
+    </div>
+    <section class="panel digest">
+      <h2>Today in the economy <span class="muted">· 16:50</span></h2>
+      <div class="label">Main themes (counted from the headlines)</div>
+      <div class="chips"><button class="chip" data-theme="Companies &amp; markets">Companies &amp; markets <span class="n">107</span></button><button class="chip" data-theme="Energy &amp; commodities">Energy &amp; commodities <span class="n">46</span></button><button class="chip" data-theme="Inflation &amp; rates">Inflation &amp; rates <span class="n">44</span></button><button class="chip" data-theme="Trade &amp; tariffs">Trade &amp; tariffs <span class="n">42</span></button><button class="chip" data-theme="Growth &amp; GDP">Growth &amp; GDP <span class="n">18</span></button><button class="chip" data-theme="Currency &amp; bonds">Currency &amp; bonds <span class="n">14</span></button><button class="chip" data-theme="Geopolitics">Geopolitics <span class="n">3</span></button></div>
+      <div class="label" style="margin-top:10px">Summary <span class="muted" style="text-transform:none;letter-spacing:0">(optional: written by Claude from these headlines; needs an Anthropic API key)</span></div>
+      <p><b>Trade:</b> new US tariff threats are pressing partners to sign trade deals; Indian exporters want an early deal with the US, while some traders want India to retaliate with a 25% duty.</p>
+      <p><b>Inflation, rates and the rupee:</b> the Fed's preferred inflation gauge (PCE) rose to 3.8% in October, and South Korea raised rates to a two-year high. In India, bonds fell as Brent crude topped $95 and the RBI flagged food-inflation risks; a Mint poll expects Q2 GDP growth to slow slightly, to 7.6%.</p>
+      <p><b>Elsewhere:</b> Russia's attacks on Ukraine's energy grid drew warnings from the US and NATO, and Latin America's copper and energy are pitched as supplies for the AI build-out.</p>
+      <p class="muted">In the app, each point would link to the stories it comes from. A summary is a starting point: read the article itself.</p>
+    </section>
+    <div class="filters">
+      <span class="seg" role="group"><button class="grp" data-group="" aria-pressed="true">All</button><button class="grp" data-group="World" aria-pressed="false">World</button><button class="grp" data-group="India" aria-pressed="false">India</button></span>
+      <select id="region"><option value="">All regions</option><option>India</option><option>US</option><option>Europe</option><option>China</option><option>Asia</option><option>Latin America</option><option>Global</option></select>
+      <select id="source"><option value="">All sources</option><option>Al Jazeera</option><option>BBC Business</option><option>BS Markets</option><option>Bloomberg.com · via Google News</option><option>Business Insider Africa · via Google News</option><option>Business Standard</option><option>Byline Times | Substack · via Google News</option><option>CNBC Economy</option><option>CNBC World</option><option>Cornerstone Research · via Google News</option><option>ET Markets</option><option>Economic Times</option><option>IntelliNews · via Google News</option><option>Investing.com · via Google News</option><option>Mint</option><option>Mint Markets</option><option>Moneycontrol</option><option>Moneycontrol Markets</option><option>NHKニュース · via Google News</option><option>Qatar news agency · via Google News</option><option>RBI press releases</option><option>Real Instituto Elcano · via Google News</option><option>South China Morning Post · via Google News</option><option>The Daily Star · via Google News</option><option>The Fiji Times · via Google News</option><option>The i Paper · via Google News</option><option>Vietnam.vn · via Google News</option><option>WSJ · via Google News</option><option>World Economic Forum · via Google News</option><option>Yeni Safak English · via Google News</option><option>businesstimes-bd.com · via Google News</option><option>联合早报 · via Google News</option></select>
+      <input id="q" type="search" placeholder="Search headlines, e.g. tariff, RBI, oil">
+      <button id="clear">Clear</button>
+      <span id="shown" class="muted"></span>
+    </div>
+    <div id="list">
+<article class="item" data-themes="Trade &amp; tariffs|Companies &amp; markets" data-regions="India|US" data-source="Mint Markets" data-group="India">
+      <div class="when"><b>16:48</b><span class="muted">1 min ago</span></div>
+      <div class="body"><div class="src">Mint Markets<span class="st new">NEW</span></div>
+        <a class="hl" href="https://www.livemint.com/market/stock-market-news/can-trumps-tariffs-fast-track-india-us-trade-deal-jefferies-decodes-kei-welspun-cipla-srf-other-stocks-to-watch-11795689679046.html" target="_blank" rel="noopener noreferrer">Can Trump&#x27;s tariffs fast-track India-US trade deal? Jefferies decodes — KEI, Welspun, Cipla, SRF, other stocks to watch <span class="ext">↗</span></a>
+        <p class="sum">Trump&#x27;s tariffs on India: The Jefferies India believes the India-US trade deal would bring down the US tariffs from 25% to 17%</p>
+        <div class="tags"><span class="tg th">Trade &amp; tariffs</span><span class="tg th">Companies &amp; markets</span><span class="tg rg">India</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="Companies &amp; markets" data-regions="US" data-source="Mint Markets" data-group="India">
+      <div class="when"><b>16:36</b><span class="muted">13 min ago</span></div>
+      <div class="body"><div class="src">Mint Markets<span class="st new">NEW</span></div>
+        <a class="hl" href="https://www.livemint.com/market/stock-market-news/us-stock-market-open-or-closed-today-thursday-26-nov-check-nyse-and-nasdaq-trading-schedule-holiday-calendar-11795689325619.html" target="_blank" rel="noopener noreferrer">US stock market open or closed today Thursday, 26 Nov? Check NYSE and Nasdaq trading schedule, holiday calendar <span class="ext">↗</span></a>
+        <p class="sum">US stock market holiday: The US stock market will remain shut on Thursday, 26 November, in observance of Thanksgiving.</p>
+        <div class="tags"><span class="tg th">Companies &amp; markets</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="Inflation &amp; rates|Growth &amp; GDP|Companies &amp; markets" data-regions="India" data-source="Mint Markets" data-group="India">
+      <div class="when"><b>16:18</b><span class="muted">31 min ago</span></div>
+      <div class="body"><div class="src">Mint Markets<span class="st new">NEW</span></div>
+        <a class="hl" href="https://www.livemint.com/market/stock-market-news/redington-shares-jump-as-apple-expands-india-retail-network-how-much-does-the-iphone-maker-contribute-to-its-revenue-11795689140478.html" target="_blank" rel="noopener noreferrer">Redington shares jump as Apple expands India retail network; how much does the iPhone maker contribute to its revenue? <span class="ext">↗</span></a>
+        <p class="sum">Redington shares rose nearly 2% after Apple announced a new Hyderabad store, expanding its Indian retail network. Apple accounts for 30% of Redington’s revenue. Redington reported second-quarter revenue growth of 48% and a 50% increase in profit after tax.</p>
+        <div class="tags"><span class="tg th">Inflation &amp; rates</span><span class="tg th">Growth &amp; GDP</span><span class="tg th">Companies &amp; markets</span><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="Energy &amp; commodities|Geopolitics" data-regions="US|Europe" data-source="CNBC World" data-group="World">
+      <div class="when"><b>16:15</b><span class="muted">34 min ago</span></div>
+      <div class="body"><div class="src">CNBC World<span class="st new">NEW</span></div>
+        <a class="hl" href="https://www.cnbc.com/2026/11/26/trump-nato-rutte-russia-ukraine-war.html" target="_blank" rel="noopener noreferrer">Trump, NATO chief caution Russia as attacks on Ukraine’s energy infrastructure intensify <span class="ext">↗</span></a>
+        <p class="sum">Trump and NATO chief Mark Rutte urged Russia to avoid actions that could expand the war and called for a rapid peaceful resolution.</p>
+        <div class="tags"><span class="tg th">Energy &amp; commodities</span><span class="tg th">Geopolitics</span><span class="tg rg">US</span><span class="tg rg">Europe</span></div></div></article>
+<article class="item" data-themes="" data-regions="Asia" data-source="Qatar news agency · via Google News" data-group="World">
+      <div class="when"><b>16:10</b><span class="muted">39 min ago</span></div>
+      <div class="body"><div class="src">Qatar news agency · via Google News<span class="st new">NEW</span></div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMitwFBVV95cUxQeVVQTU9BS1hyOHNISHZHVllXQzh6NnFuakQwOE9oQTBVNW9MejRfZHdxTEtEXzE2R0NmdEFUTnE2VjB1NVZTSEhXNUpQVUhfQnJvejNPcy11aGZuelctVHhHMUJnOWFhd1dKU3dUYVI3UHdEZ0RMQ211VkdFQURoZDR1WFd5MlJZTldnSFRvUlI3X2JybUxsNnBEVU9iR1N1NV82Q1MtRWNpSEV3bTNHblpDOUdEbDA?oc=5" target="_blank" rel="noopener noreferrer">Qatar Chamber Participates in Arab-Hellenic Economic Forum in Athens <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg rg">Asia</span></div></div></article>
+<article class="item" data-themes="Trade &amp; tariffs" data-regions="US" data-source="Moneycontrol" data-group="India">
+      <div class="when"><b>16:08</b><span class="muted">41 min ago</span></div>
+      <div class="body"><div class="src">Moneycontrol<span class="st new">NEW</span></div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMi3AFBVV95cUxPWjFqbjZhbkZrcEQ1Y1MwQTBMYnl3c1Jiek9MdWtOeElFSFpCOVFRaUVPM0RqZmhYdENIVi1JeEp5bUc2b0xTT0JSYWNzbm5xZTgwbDR4RlVmVlhuUjJLSTc2S1JVbGNQbXdvVm1QSU4wX3F3ejV2MXNNWndMaEVwb004aEd6Z2ZKT3d0RTFHeEEteXVxSWgyXzZDMmRzSkdmQ21fNDJmeEp3Z1ExNDZyOFBlbHo5ZU1hazNqOXZubXQ3RDgyOHdqT3JxY0tBckFNNXJTdlhOdjh4QzdT?oc=5" target="_blank" rel="noopener noreferrer">From textiles to electronics: Winners and losers of the proposed US tariff reset <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg th">Trade &amp; tariffs</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="Inflation &amp; rates|Energy &amp; commodities|Currency &amp; bonds" data-regions="India" data-source="ET Markets" data-group="India">
+      <div class="when"><b>16:06</b><span class="muted">43 min ago</span></div>
+      <div class="body"><div class="src">ET Markets<span class="st new">NEW</span></div>
+        <a class="hl" href="https://economictimes.indiatimes.com/markets/forex/forex-news/spike-in-oil-prices-partly-reverses-rupee-rally-forward-premiums-surge/articleshow/136188127.cms" target="_blank" rel="noopener noreferrer">Spike in oil prices partly reverses rupee rally, forward premiums surge <span class="ext">↗</span></a>
+        <p class="sum">The Indian rupee has faced depreciation as a result of escalating oil prices combined with pressures from surrounding currencies. With Brent crude exceeding $96 per barrel, worries about India&#x27;s import costs and inflation have intensified. Recent days have seen heightened…</p>
+        <div class="tags"><span class="tg th">Inflation &amp; rates</span><span class="tg th">Energy &amp; commodities</span><span class="tg th">Currency &amp; bonds</span><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="Energy &amp; commodities" data-regions="India" data-source="Business Standard" data-group="India">
+      <div class="when"><b>16:03</b><span class="muted">46 min ago</span></div>
+      <div class="body"><div class="src">Business Standard<span class="st new">NEW</span></div>
+        <a class="hl" href="https://www.business-standard.com/economy/news/rajasthan-chief-secy-asks-officials-to-fast-track-operationalising-mines-126112600836_1.html" target="_blank" rel="noopener noreferrer">Rajasthan chief secy asks officials to fast-track operationalising mines <span class="ext">↗</span></a>
+        <p class="sum">Rajasthan Chief Secretary V Srinivas urged departments to expedite clearances and operationalise auctioned mines, as the state seeks to tap mineral potential beyond the Aravalli region.</p>
+        <div class="tags"><span class="tg th">Energy &amp; commodities</span><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="Inflation &amp; rates" data-regions="US" data-source="Al Jazeera" data-group="World">
+      <div class="when"><b>16:00</b><span class="muted">50 min ago</span></div>
+      <div class="body"><div class="src">Al Jazeera<span class="st new">NEW</span></div>
+        <a class="hl" href="https://www.aljazeera.com/economy/2026/11/26/thanksgiving-dinner-costs-rise-putting-pressure-on-us-households?traffic_source=rss" target="_blank" rel="noopener noreferrer">Thanksgiving dinner costs rise, putting pressure on US households <span class="ext">↗</span></a>
+        <p class="sum">Turkeys see a 26-percent price rise, forcing families to reconsider hosting and opt for potluck-style celebrations.</p>
+        <div class="tags"><span class="tg th">Inflation &amp; rates</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="Trade &amp; tariffs" data-regions="US|China" data-source="businesstimes-bd.com · via Google News" data-group="World">
+      <div class="when"><b>15:59</b><span class="muted">50 min ago</span></div>
+      <div class="body"><div class="src">businesstimes-bd.com · via Google News<span class="st new">NEW</span></div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMib0FVX3lxTE4yQ0UyRHp3bFNsZHlQQ1dWaXVzMXFLMWRkVWZSNHVwdF9wRFJ6dGdzdHNESkhibFlFamV3aXNtZ2VUcVdDaUJVbExFNmFUSW9KTENndllUNDZ6ZVdMMVBGdV9kTUthLXhCYjdJQ1F6NA?oc=5" target="_blank" rel="noopener noreferrer">Trump’s New Tariffs Target China’s Global Trade Dominance | World Business <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg th">Trade &amp; tariffs</span><span class="tg rg">US</span><span class="tg rg">China</span></div></div></article>
+<article class="item" data-themes="Trade &amp; tariffs" data-regions="US" data-source="Moneycontrol" data-group="India">
+      <div class="when"><b>15:57</b><span class="muted">52 min ago</span></div>
+      <div class="body"><div class="src">Moneycontrol<span class="st new">NEW</span></div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMi1wFBVV95cUxQNlViamNlLTZLcUZRbmZxNnRJakw3ejNzYU9XYnBFNWRfenZkblRGODFWM1phTTZwR2dwRFRhNXk3TFN1NGtyV1RRaVMtYnYzYnVQSWdEOUhfZXRZSTRxclJ5UGFhc0FHaTdDLW9MUmd1U09wOXF4YmN0c2I2N3p5dzg5OGhCZlhfcGxDMlFaOFpERGFSUm9nUzRKM1d6Y200V2M0Y1BsTDAxSlRJd2w4QUptN0dDeUk5SXZhbVNvcG5xblFMVEpLT1hoYmkwY2lrUEZ0TFBZONIB3AFBVV95cUxPQldBT3QzYmEtZGxRUlhnZ0Y3UTJTNjNLWWxjSlpIaFdCXzk0SzNEUWJkQW1jcVRtUkp6NjR4MkVhZjd1RkZIeHZNb3lBNkhIazFXLWx4a0Fxb0piaV9SZkVES2VfbWFtSDFLZmlRR3dGYVRPTEVvWWJlbGZUVVNSTW9NRTVnaWw0MkF2VnZHOTV3S016Y0tpNWd3ZnpJREExY0JvS0d5clhST3Y2TEtER0hmWUJRS0lreS1nWkY5azhWZGJ0YzZ6akZYTzJMeUYzS3NvbzY4QVRCWUJo?oc=5" target="_blank" rel="noopener noreferrer">Export heavy sector remains cautiously optimistic as US threatens 25% tariff <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg th">Trade &amp; tariffs</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="Companies &amp; markets" data-regions="Europe" data-source="BBC Business" data-group="World">
+      <div class="when"><b>15:45</b><span class="muted">1 h ago</span></div>
+      <div class="body"><div class="src">BBC Business<span class="st new">NEW</span></div>
+        <a class="hl" href="https://www.bbc.co.uk/news/articles/cm4g10p2r0g9o?at_medium=RSS&amp;at_campaign=rss" target="_blank" rel="noopener noreferrer">What&#x27;s gone wrong at Poundland? <span class="ext">↗</span></a>
+        <p class="sum">Poundland has collapse into administration. Why?</p>
+        <div class="tags"><span class="tg th">Companies &amp; markets</span><span class="tg rg">Europe</span></div></div></article>
+<article class="item" data-themes="" data-regions="India" data-source="Economic Times" data-group="India">
+      <div class="when"><b>15:34</b><span class="muted">1 h ago</span></div>
+      <div class="body"><div class="src">Economic Times<span class="st new">NEW</span></div>
+        <a class="hl" href="https://economictimes.indiatimes.com/news/economy/finance/india-attracts-31-bn-in-climate-equity-funding-but-22-24-trn-needed-by-2070-bcg-ivca/articleshow/136186999.cms" target="_blank" rel="noopener noreferrer">India attracts $31 bn in climate equity funding, but $22-24 trn needed by 2070: BCG-IVCA <span class="ext">↗</span></a>
+        <p class="sum">India has secured nearly USD 31 billion in climate funding since 2021, focusing primarily on power and transport. Underfunded sectors such as manufacturing, waste management, and agriculture require significant investment to meet future goals. The country needs approximately…</p>
+        <div class="tags"><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="Trade &amp; tariffs" data-regions="US" data-source="CNBC Economy" data-group="World">
+      <div class="when"><b>15:32</b><span class="muted">1 h ago</span></div>
+      <div class="body"><div class="src">CNBC Economy<span class="st new">NEW</span></div>
+        <a class="hl" href="https://www.cnbc.com/2026/11/26/us-tariffs-hike-trade-agreement.html" target="_blank" rel="noopener noreferrer">U.S. tariff-hike threats pile pressure on partners to sign trade deals <span class="ext">↗</span></a>
+        <p class="sum">The U.S. planned a fresh tariff salvo on 14 trading partners, while offering some countries lower rates if they secure trade deals with Washington.</p>
+        <div class="tags"><span class="tg th">Trade &amp; tariffs</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="Energy &amp; commodities" data-regions="India" data-source="Economic Times" data-group="India">
+      <div class="when"><b>15:29</b><span class="muted">1 h ago</span></div>
+      <div class="body"><div class="src">Economic Times<span class="st new">NEW</span></div>
+        <a class="hl" href="https://economictimes.indiatimes.com/news/economy/agriculture/india-projects-kharif-foodgrain-production-at-16714-million-tonnes-despite-el-nino-challenges/articleshow/136186752.cms" target="_blank" rel="noopener noreferrer">Govt projects Kharif foodgrain production at 167.14 mln tonnes despite El Nino; 2025-26 crop output a record <span class="ext">↗</span></a>
+        <p class="sum">Kharif foodgrain production for the 2026-27 crop year is projected at 167.14 million tonnes amid weather challenges. Agriculture Minister Shivraj Singh Chouhan announced these estimates despite El Nino and a delayed monsoon. In the previous crop year, foodgrain production…</p>
+        <div class="tags"><span class="tg th">Energy &amp; commodities</span><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="" data-regions="Europe" data-source="BBC Business" data-group="World">
+      <div class="when"><b>15:29</b><span class="muted">1 h ago</span></div>
+      <div class="body"><div class="src">BBC Business<span class="st new">NEW</span></div>
+        <a class="hl" href="https://www.bbc.co.uk/news/articles/c98r7p65edvgo?at_medium=RSS&amp;at_campaign=rss" target="_blank" rel="noopener noreferrer">New UK-EU treaty has 10-year termination clause <span class="ext">↗</span></a>
+        <p class="sum">Text of the treaties will be published this afternoon, alongside legislation designed to enact the bulk of the deal.</p>
+        <div class="tags"><span class="tg rg">Europe</span></div></div></article>
+<article class="item" data-themes="" data-regions="India" data-source="Business Standard" data-group="India">
+      <div class="when"><b>15:26</b><span class="muted">1 h ago</span></div>
+      <div class="body"><div class="src">Business Standard<span class="st new">NEW</span></div>
+        <a class="hl" href="https://www.business-standard.com/economy/uttar-pradesh/uttar-pradesh-msme-promotion-policy-2022-incentives-eligibility-and-implementation-126112300551_1.html" target="_blank" rel="noopener noreferrer">Uttar Pradesh MSME Promotion Policy, 2022: Incentives, eligibility and implementation <span class="ext">↗</span></a>
+        <p class="sum">The policy is one of Uttar Pradesh&#x27;s principal frameworks for encouraging smaller manufacturing enterprises</p>
+        <div class="tags"><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="Companies &amp; markets" data-regions="India" data-source="BS Markets" data-group="India">
+      <div class="when"><b>15:14</b><span class="muted">1 h ago</span></div>
+      <div class="body"><div class="src">BS Markets<span class="st new">NEW</span></div>
+        <a class="hl" href="https://www.business-standard.com/markets/news/indigo-up-22-in-a-month-anand-rathi-sees-macro-tailwinds-aiding-recovery-126112600733_1.html" target="_blank" rel="noopener noreferrer">IndiGo up 22% in a month; Anand Rathi sees macro tailwinds aiding recovery <span class="ext">↗</span></a>
+        <p class="sum">Anand Rathi has maintained a &#x27;Buy&#x27; rating on IndiGo stock and raised the target price to ₹6,600 from ₹5,550. The target implies an upside of nearly 16 per cent from the previous close of ₹5,720.</p>
+        <div class="tags"><span class="tg th">Companies &amp; markets</span><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="" data-regions="Global" data-source="BBC Business" data-group="World">
+      <div class="when"><b>15:09</b><span class="muted">1 h ago</span></div>
+      <div class="body"><div class="src">BBC Business<span class="st new">NEW</span></div>
+        <a class="hl" href="https://www.bbc.co.uk/news/articles/c2l9vvj097lo?at_medium=RSS&amp;at_campaign=rss" target="_blank" rel="noopener noreferrer">Car finance compensation payments explained <span class="ext">↗</span></a>
+        <p class="sum">Millions could be entitled to compensation as a result of commission arrangements between lenders and dealers.</p>
+        <div class="tags"><span class="tg rg">Global</span></div></div></article>
+<article class="item" data-themes="Geopolitics" data-regions="US|China" data-source="联合早报 · via Google News" data-group="World">
+      <div class="when"><b>15:07</b><span class="muted">1 h ago</span></div>
+      <div class="body"><div class="src">联合早报 · via Google News<span class="st new">NEW</span></div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMimgFBVV95cUxPd0l1eDU2ckEwWWM3enFTVXJ0N1YwQURMVUxJU3R1MTFHQ3ZORkZ6NWhaNzc0MnY3cHphWHhSRUNfdWozMkpSNW96ZUZBd19WOENlVl9MdGtpRmlIRnR2RFZfQkZCZ29QSWxGR1Zwc3R3ZWwtb19UeFllZFZvMGRIb19qYVVmNU5zMDh4RmV6LWRESDA0ejA2ZnJn?oc=5" target="_blank" rel="noopener noreferrer">[Opinion] How the China-Russia-US summit could change the world <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg th">Geopolitics</span><span class="tg rg">US</span><span class="tg rg">China</span></div></div></article>
+<article class="item" data-themes="Trade &amp; tariffs" data-regions="India|US" data-source="Moneycontrol" data-group="India">
+      <div class="when"><b>14:56</b><span class="muted">1 h ago</span></div>
+      <div class="body"><div class="src">Moneycontrol<span class="st new">NEW</span></div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMi2gFBVV95cUxPeG5rT2N1WGdqdGkza3pPdzhXZFRLa1ZNZ3pETVNmN1JXRXRrT0JHOHpZRGFvMElUTWlFWjdBTVFJTDlFb3VkZjE0ekttcC1qVjhFdS11TVpKVTQ0OE8wRDZxcHhMb2VYa2VDMkwwRDVFZDNHLXI5QmRBYllMeF9VVDBjX1FiaTNsWkJXcVJxeEVXdDZxT1BSN2p0VzE4bUJhbklxTlpQWllUR3g3Nk9QTUNieFB1bjZtQ3o4TnkxUWhMcTBVRWpsNnRDTFM5LUE5SmRoU3lsOFphZ9IB3wFBVV95cUxQd2plcV9FT2dMVmJxdHNFSGhONWRjaHdYRTMwbEQyYkhsU2NFNmFoMXpMQXY3eDM0eUNNS1dxeGg2dUhiTHFZSzZtUXAwMGlzV1RwWkMtbkpjTEprS2tJajdZLWFQY1B0WTJYM1dxRXBSdWxxN1VSVnE1c0hGMjF5aU9GMEllMmZ4czVQcUNua1dVUUZPQjRKcDgzMU1NRS0xOU1qbmVmdDJHd2ktV0F5R0VXUUE0RFMxVlhFS0Fmd195ejBHNXBFcnNZYjRyMDl0Y1ZyVG1wcWJQalgxWi1v?oc=5" target="_blank" rel="noopener noreferrer">Moneycontrol Pro Panorama | India must hold ground against new US tariff threat <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg th">Trade &amp; tariffs</span><span class="tg rg">India</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="" data-regions="India" data-source="Moneycontrol Markets" data-group="India">
+      <div class="when"><b>14:51</b><span class="muted">1 h ago</span></div>
+      <div class="body"><div class="src">Moneycontrol Markets<span class="st new">NEW</span></div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMi5gFBVV95cUxPZHV2Y0FqclEwblhYRkJHbDFIdTdlamtJU2dqelBWQjZqQ3B4cHZ1U2VKcFlIZlhlb19OSEVXSGs4Q0tRM05jY09ZTnNTd3k4Sjhyd3FJNFNKUEpRckxDbHo2V0ZrbDNqckJmQ1hNcGlkYkk1bWdMS1Jxek0xVUhTYkxjSXJBZUN5QmlrT0RsUUU3RnQ4a000dHJSYmV2ZGE3TTl5RUpVbmtFbmVhSTM2Sm1pcXlPMjFBYllkT0xjQ3c4V21DVDY4bmNfR2thMXUyMHZKUW5GZ2htWm9lQWlWY1lRdVcxQdIB6wFBVV95cUxPTFdvaFpnZkRLYlc5Ym5UdlJSekN5cGFXbkk1eFd0RXVTMXh0VVF2bzF5YXYtREVPRzFzNWJtNVpERThrZk03Rl9TRXpaeVN3WmZHOHpRb0I5LXV4X3F4SWxIMTBpY25JNVFuaFdDTWlFMDJQWXlzYzU0bkVBeDExR0JKQUY4ZjNlaUsyamlReVBxbkhTOGR2Qlh3V21VTzh5dGRKLWZIbjFkSFI5V3ZKWURnSGM2UVNwWl9UV3NMejlUNVlpVmdoUUZ1SHdrYk1NVHRQaTUtOXNnOW1nSTNiSF9uSG9aQVVjMTE4?oc=5" target="_blank" rel="noopener noreferrer">Reddit user claims he turned $500 into $1 million in two weeks by trading Nvidia options <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="Trade &amp; tariffs|Companies &amp; markets" data-regions="US" data-source="Moneycontrol Markets" data-group="India">
+      <div class="when"><b>14:41</b><span class="muted">2 h ago</span></div>
+      <div class="body"><div class="src">Moneycontrol Markets</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMiuwJBVV95cUxPaDlEN3A4dndVSk5fUi1DME9sQXdUcE1RblptVEdIUmFkSHExa2FqZ1RmSGtBSF9VMHZXaVZyYXdBUmJJTngzVUNFMkFqaVJZMVBnOWxWeWJKSk4wcTVuUmpEYWhWUHJYRzBWSFMxUXF1dVZOWks2dVhaVkdHRGlwOVQ4anU0UmtERnN2VC0tVUxKMHh6c0c0TU5aOVN1eUxQN05BaHlObENfZ0xJSEtaaElMMFZQVzhjODVxa29GLU13N2c1UEc2aG1QRTRDUjNFbGNHX1Y3bURJdHZEbWZ6MXZhRU5CWHJoalZ6LWM1Y01Mdzh1UWxsUkNkM05mQzhlRTNRY05aRHl1Y3VtZXY5MnQ5LXpXVUtzMHVQQzJkM0paNnM2R0FTS012Sm5QUEI3WnJIalVTQXJTeEXSAcACQVVfeXFMT2FLdHA1SUNUQ3JjVVUwYWV5ckh2bEowM3RaNFRER2VwRHFyUkdHdnJkN3VVYjFINWhQb080ZjVCNVFqZnlLbE51VGNVNm1wYkZ2TTVsbHk3OXBvTC1KOXd3YXNvM1pyRW5MRDNaTWxOUEZWVDBpNTdBS21vNVVtdjdhcnpnUFBiTkl4eks1WFdjUlQydWVBeDduWDQ5a1hHYmtZUDJsajZZcDBfbmJRUi16a3VMcF9uS2VkQkliVjA4ZXNlTXk2bTU0TEFiUHliR09HdjdVY21nUGJGYUxWUnZzem5LbTc5ZXpsdG9jaE92dG5XN3EzMXJWVjZabzBXbmlRVnJ4dGRHVTkwNGxMb0o0VW9aOGVtOUQxdWc2anJxUGNKenR0X196c1pReHg3YWhOY1cxSzNzcnY2VzF3WDA?oc=5" target="_blank" rel="noopener noreferrer">Textile stocks: Gokaldas Exports, Arvind, Kitex Garments fall as proposed US tariffs raise export... <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg th">Trade &amp; tariffs</span><span class="tg th">Companies &amp; markets</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="Companies &amp; markets" data-regions="India" data-source="BS Markets" data-group="India">
+      <div class="when"><b>14:40</b><span class="muted">2 h ago</span></div>
+      <div class="body"><div class="src">BS Markets</div>
+        <a class="hl" href="https://www.business-standard.com/markets/news/nifty-realty-hits-52-week-high-up-3-led-by-brigade-enterprises-prestige-estates-126112600658_1.html" target="_blank" rel="noopener noreferrer">Nifty Realty hits 52-wk high, up 3% led by Prestige, Brigade Enterprises <span class="ext">↗</span></a>
+        <p class="sum">At 02:05 PM on Thursday, the Nifty Realty index was the top gainer among sectoral indices up 3% compared to a 0.14% decline in the Nifty 50.</p>
+        <div class="tags"><span class="tg th">Companies &amp; markets</span><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="Trade &amp; tariffs|Inflation &amp; rates" data-regions="India|US" data-source="Business Standard" data-group="India">
+      <div class="when"><b>14:38</b><span class="muted">2 h ago</span></div>
+      <div class="body"><div class="src">Business Standard</div>
+        <a class="hl" href="https://www.business-standard.com/economy/news/exporters-seek-early-trade-deal-with-us-cite-17-tariff-advantage-126112600601_1.html" target="_blank" rel="noopener noreferrer">Exporters seek early trade deal with US, cite 17% tariff advantage <span class="ext">↗</span></a>
+        <p class="sum">Indian exporters on Thursday urged the government to seal a trade pact with the US at the earliest, saying the proposed 17 per cent tariff, as outlined in the USTR report, would give India an advantage over competing nations. They said that this is the right time to finalise…</p>
+        <div class="tags"><span class="tg th">Trade &amp; tariffs</span><span class="tg th">Inflation &amp; rates</span><span class="tg rg">India</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="Inflation &amp; rates|Companies &amp; markets" data-regions="India" data-source="BS Markets" data-group="India">
+      <div class="when"><b>14:33</b><span class="muted">2 h ago</span></div>
+      <div class="body"><div class="src">BS Markets</div>
+        <a class="hl" href="https://www.business-standard.com/markets/news/lcc-projects-hits-10-upper-band-on-order-win-but-40-below-ipo-price-126112600648_1.html" target="_blank" rel="noopener noreferrer">LCC Projects hits 10% upper band on order win; but 40% below IPO price <span class="ext">↗</span></a>
+        <p class="sum">LCC Projects&#x27; stock listed on the Indian bourses on September 17. However, it remains 6.40 per cent below the initial public offering (IPO) price of ₹146 and 40 per cent off the all-time high of ₹191.</p>
+        <div class="tags"><span class="tg th">Inflation &amp; rates</span><span class="tg th">Companies &amp; markets</span><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="Companies &amp; markets" data-regions="Europe" data-source="CNBC World" data-group="World">
+      <div class="when"><b>14:32</b><span class="muted">2 h ago</span></div>
+      <div class="body"><div class="src">CNBC World</div>
+        <a class="hl" href="https://www.cnbc.com/2026/11/26/norse-airline-finance-business.html" target="_blank" rel="noopener noreferrer">Norse Atlantic suspends all flights, warns it may file for bankruptcy after share price collapse <span class="ext">↗</span></a>
+        <p class="sum">Norse Atlantic has suspended all flights and said it may it have to file for bankruptcy, a day after it warned its financial position was &quot;critical.&quot;</p>
+        <div class="tags"><span class="tg th">Companies &amp; markets</span><span class="tg rg">Europe</span></div></div></article>
+<article class="item" data-themes="Companies &amp; markets" data-regions="India" data-source="Moneycontrol Markets" data-group="India">
+      <div class="when"><b>14:30</b><span class="muted">2 h ago</span></div>
+      <div class="body"><div class="src">Moneycontrol Markets</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMi4gFBVV95cUxOTVoxZFI1aU5RWF9GUDk5NDBZQWNjTmcwaXd2TWNUY1AwbXRVNkdkQXRQRGJwNDdqWDZFU3Frc254cTZ0Z3MtNDNDUnktZ0RSbDZvSURGaTU0cHdYS3EzZThBSHBMN3NxWjdKUHpSRWMzdDdMemx3eXFqOWpYR1k5WjNpODRiUkx4X0dBYU81RFN4X3NnTUZJZ0lvUkFJc2c0T09xd1RjODJ5OGhCOU9kWmZwN2VtWm43ZzBKdnRKVUxwN3htMWtCcG5wRUk0SklvLVdZVDBwOGtNRFJLbWFmOHln0gHnAUFVX3lxTE4zOFNEb2luODI1ekNuWjQ3a1RHdjBGcjh1bzJ0T2RiRy1XT1NtU3AwbWJESXV6bzdhdUJuS3VFYTdoa2xQZkhvVFJlVVlfX09OSHdxUG44SDJwZWNSMTNUUVAtRjY1SFBnamZMbDhIV3k0YXBmTnMtQkVZaVRZUkRCOWJOWXh0Mmc5QW93TVJQeFcxVk9ReWJMQ1BPdEZldVBPUVNuQ3Bxc25YY0dBS1RhamlUM3dlSW5MZ1Ewdnloc2ZKVGdOV21vVHB2Y1RPUDR4dG9QbG1mM1hnZE05RENwUC1ybVdsNA?oc=5" target="_blank" rel="noopener noreferrer">Nifty Metal ends 3-day losing streak as metal prices rise; Hindalco, Nalco lead gains <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg th">Companies &amp; markets</span><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="Energy &amp; commodities" data-regions="Latin America" data-source="CNBC World" data-group="World">
+      <div class="when"><b>14:29</b><span class="muted">2 h ago</span></div>
+      <div class="body"><div class="src">CNBC World</div>
+        <a class="hl" href="https://www.cnbc.com/2026/11/26/latin-america-copper-energy-ai-investment.html" target="_blank" rel="noopener noreferrer">Latin America has the copper and energy the AI build-out needs. Infrastructure is the test <span class="ext">↗</span></a>
+        <p class="sum">Latin America’s copper, oil, gas and rare earths could benefit from rising AI energy demand, if infrastructure and fiscal policy attract investment.</p>
+        <div class="tags"><span class="tg th">Energy &amp; commodities</span><span class="tg rg">Latin America</span></div></div></article>
+<article class="item" data-themes="Trade &amp; tariffs" data-regions="India|US" data-source="Economic Times" data-group="India">
+      <div class="when"><b>14:22</b><span class="muted">2 h ago</span></div>
+      <div class="body"><div class="src">Economic Times</div>
+        <a class="hl" href="https://economictimes.indiatimes.com/news/economy/foreign-trade/how-donald-trumps-proposed-fresh-tariff-salvo-for-india-compare-with-rival-nations/articleshow/136184609.cms" target="_blank" rel="noopener noreferrer">How Donald Trump&#x27;s proposed fresh tariff salvo for India compare with rival nations <span class="ext">↗</span></a>
+        <p class="sum">The US has proposed a 25% tariff on Indian imports to address excess industrial capacity issues. This rate could decrease to 17% if a trade deal is reached. India&#x27;s trade ministry is reviewing the US&#x27;s trade practices allegations while defending its own situation. Trade talks…</p>
+        <div class="tags"><span class="tg th">Trade &amp; tariffs</span><span class="tg rg">India</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="Growth &amp; GDP" data-regions="US" data-source="Investing.com · via Google News" data-group="World">
+      <div class="when"><b>12:59</b><span class="muted">3 h ago</span></div>
+      <div class="body"><div class="src">Investing.com · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMipwFBVV95cUxNVExIWDZ0M1J3aVhtbUYyZlNMTU9IVzlhRmttVC1wWS1kMVpROG51c0hOYi0xOHdpbWdqLVRBNlRiRWt1N3hPd0FhNF9sMlVXS04xak1RdXRSaHpMRjBoV0xTN1BQeWlaR2RLZU5qT05RTFdwNVk4Z0p4QkFYVVFjWEpLWWswbEd1dldpSGtvZlJpMUphaFRPdTNSSlRwUnZ4T3d3LTBqRQ?oc=5" target="_blank" rel="noopener noreferrer">The US Economy Is Strong - But How Safe Is the Global Growth? <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg th">Growth &amp; GDP</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="" data-regions="Global" data-source="Yeni Safak English · via Google News" data-group="World">
+      <div class="when"><b>11:09</b><span class="muted">5 h ago</span></div>
+      <div class="body"><div class="src">Yeni Safak English · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMigwFBVV95cUxOMjVHeEdNVWE4aDdmZmxSc2hzVEFZV01yVTFiYlZHRjM4N1IzeFdINFI3YmpDWHNmSVBGbjJQdzFPTmVneUtuSG1fX01vVGI1RVJ6bUw3TDBhTk9jcXJFWS00dGFWX3JPb2VSaWw2TjcxenR0aXdGN050QmFsS20xcmZkSQ?oc=5" target="_blank" rel="noopener noreferrer">Wheat prices boom amid nuclear scare <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg rg">Global</span></div></div></article>
+<article class="item" data-themes="Trade &amp; tariffs|Energy &amp; commodities|Currency &amp; bonds" data-regions="India|US" data-source="ET Markets" data-group="India">
+      <div class="when"><b>10:54</b><span class="muted">5 h ago</span></div>
+      <div class="body"><div class="src">ET Markets</div>
+        <a class="hl" href="https://economictimes.indiatimes.com/markets/forex/rupee-falls-20-paise-to-92-40-against-us-dollar-in-early-trade/articleshow/136179591.cms" target="_blank" rel="noopener noreferrer">Rupee falls 20 paise to 92.40 against US dollar in early trade <span class="ext">↗</span></a>
+        <p class="sum">The rupee fell 20 paise to 92.40 against the US dollar in early trade. Higher crude oil prices and proposed tariffs by the US administration increased dollar demand. Foreign fund inflows supported the rupee but it faced pressure from rising crude prices. The US proposed 25…</p>
+        <div class="tags"><span class="tg th">Trade &amp; tariffs</span><span class="tg th">Energy &amp; commodities</span><span class="tg th">Currency &amp; bonds</span><span class="tg rg">India</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="Inflation &amp; rates|Energy &amp; commodities|Currency &amp; bonds" data-regions="India" data-source="ET Markets" data-group="India">
+      <div class="when"><b>10:50</b><span class="muted">5 h ago</span></div>
+      <div class="body"><div class="src">ET Markets</div>
+        <a class="hl" href="https://economictimes.indiatimes.com/markets/bonds/india-bonds-tumble-as-brent-tops-95-per-barrel-rbi-flags-food-inflation-risks/articleshow/136179562.cms" target="_blank" rel="noopener noreferrer">India bonds tumble as Brent tops $95 per barrel, RBI flags food inflation risks <span class="ext">↗</span></a>
+        <p class="sum">Indian government bonds fell as oil prices surged, raising concerns about inflation and economic stability. The Reserve Bank of India highlighted rising food inflation pressures, indicating widespread price increases. Higher oil prices may widen the current account deficit…</p>
+        <div class="tags"><span class="tg th">Inflation &amp; rates</span><span class="tg th">Energy &amp; commodities</span><span class="tg th">Currency &amp; bonds</span><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="Trade &amp; tariffs" data-regions="US" data-source="The i Paper · via Google News" data-group="World">
+      <div class="when"><b>10:34</b><span class="muted">6 h ago</span></div>
+      <div class="body"><div class="src">The i Paper · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMihAFBVV95cUxQLW9pX2MwdEJHTHJ2cmlaaE94cjJIUndidjlFVDAwUVFNOV9ySzA5azJQVXBxSE1pV1FDMXI2NXdUeXNBOXpjZ1cxNWxGMXlHMXpaRGJBcUdqN01aLU9YSlRlQnBTd0EzQzRPNEsyNE9QSGdsRG9Jb3JHbGZjTy11QnpYamE?oc=5" target="_blank" rel="noopener noreferrer">Why Trump still wants his illegal ‘Liberation Day’ tariffs <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg th">Trade &amp; tariffs</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="Trade &amp; tariffs" data-regions="India|US" data-source="Economic Times" data-group="India">
+      <div class="when"><b>09:46</b><span class="muted">7 h ago</span></div>
+      <div class="body"><div class="src">Economic Times</div>
+        <a class="hl" href="https://economictimes.indiatimes.com/news/economy/foreign-trade/us-tariff-threat-indian-traders-urge-modi-to-hit-back-with-25-duty/articleshow/136178272.cms" target="_blank" rel="noopener noreferrer">US tariff threat: Indian traders urge Modi to hit back with 25% duty <span class="ext">↗</span></a>
+        <p class="sum">The Chamber of Trading Industry (CTI) has urged the government to consider imposing a 25 per cent retaliatory tariff on US goods if Washington proceeds with higher duties on Indian products, warning that the proposed measures could affect exports worth USD 48 billion and put…</p>
+        <div class="tags"><span class="tg th">Trade &amp; tariffs</span><span class="tg rg">India</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="" data-regions="Global" data-source="The Fiji Times · via Google News" data-group="World">
+      <div class="when"><b>07:30</b><span class="muted">9 h ago</span></div>
+      <div class="body"><div class="src">The Fiji Times · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMiigFBVV95cUxQQjhhUDRTVzdIdUpyekZGMjQteWlOZXFOdURxVTVGb0dPb1hQNVo2ZlR3MjdwRkhZSi1ENXhPSmlXSTVFUkxMQTBVWGZqZEdVSFhGb21faGxXU2R4dWZ0UWwzeTFNNm1DZElTSFAwdGhGdGw1SnNDV01OZUVOMUxWQ2wtTkIzdzlkRVE?oc=5" target="_blank" rel="noopener noreferrer">Fiji’s economy remains resilient amid global pressure <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg rg">Global</span></div></div></article>
+<article class="item" data-themes="Inflation &amp; rates" data-regions="Asia" data-source="Mint" data-group="India">
+      <div class="when"><b>07:01</b><span class="muted">9 h ago</span></div>
+      <div class="body"><div class="src">Mint</div>
+        <a class="hl" href="https://www.livemint.com/economy/south-korea-raises-rates-to-2-year-high-as-inflation-and-housing-prices-remain-a-worry-11795655573553.html" target="_blank" rel="noopener noreferrer">South Korea raises rates to 2-year high as inflation and housing prices remain a worry <span class="ext">↗</span></a>
+        <p class="sum">South Korea’s central bank raised its benchmark rate by 25 basis points to 3.25%, its highest level in two years, citing above-target inflation and renewed rises in Seoul housing prices.&amp;nbsp;</p>
+        <div class="tags"><span class="tg th">Inflation &amp; rates</span><span class="tg rg">Asia</span></div></div></article>
+<article class="item" data-themes="Growth &amp; GDP" data-regions="Asia" data-source="Mint" data-group="India">
+      <div class="when"><b>06:36</b><span class="muted">10 h ago</span></div>
+      <div class="body"><div class="src">Mint</div>
+        <a class="hl" href="https://www.livemint.com/economy/uae-eyes-7-8-growth-next-year-as-imf-reverses-recession-forecast-projects-0-2-expansion-11795653659713.html" target="_blank" rel="noopener noreferrer">UAE eyes 7-8% growth next year as IMF reverses recession forecast, projects 0.2% expansion <span class="ext">↗</span></a>
+        <p class="sum">The UAE expects its economy to recover next year, with tourism improving and the IMF forecasting 0.2% growth in 2026. The economy minister is more optimistic, targeting 7% to 8% growth, but warned that prospects depend on the Iran war and said investment would prioritize…</p>
+        <div class="tags"><span class="tg th">Growth &amp; GDP</span><span class="tg rg">Asia</span></div></div></article>
+<article class="item" data-themes="Energy &amp; commodities" data-regions="Global" data-source="The Daily Star · via Google News" data-group="World">
+      <div class="when"><b>06:17</b><span class="muted">10 h ago</span></div>
+      <div class="body"><div class="src">The Daily Star · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMihwFBVV95cUxNWFpqM3JfTi1icV9ZWU52dEY5VXU2MldkQU4tU0huSUZ2YS1BWUhVbTJvVGs2aHhMckdnZ0luM2lSVzc4cUVISk1wM3JPTHd6OFBaS3ZmMzRKSndFTzhmdWhCVjRQbjBkMktZZ2RvMHVqT0VXUlpVVmtMSUNxNmtlX3Iwbk9qaVk?oc=5" target="_blank" rel="noopener noreferrer">Brent drops to $91 <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg th">Energy &amp; commodities</span><span class="tg rg">Global</span></div></div></article>
+<article class="item" data-themes="Growth &amp; GDP" data-regions="India" data-source="Mint" data-group="India">
+      <div class="when"><b>06:00</b><span class="muted">10 h ago</span></div>
+      <div class="body"><div class="src">Mint</div>
+        <a class="hl" href="https://www.livemint.com/economy/indias-q2-gdp-growth-to-slow-marginally-to-7-6-shows-mint-poll-11795598155206.html" target="_blank" rel="noopener noreferrer">India’s Q2 GDP growth to slow marginally to 7.6%, shows Mint poll <span class="ext">↗</span></a>
+        <p class="sum">A deficient monsoon and uneven rural demand may have weighed on growth, while resilient manufacturing and services activity are expected to have supported the economy.</p>
+        <div class="tags"><span class="tg th">Growth &amp; GDP</span><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="" data-regions="US|China" data-source="South China Morning Post · via Google News" data-group="World">
+      <div class="when"><b>06:00</b><span class="muted">10 h ago</span></div>
+      <div class="body"><div class="src">South China Morning Post · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMi0AFBVV95cUxNTjBkN2FPZ2V1b0dhWGtPcmtuaUdHZFdmZkwzQkpHM2VWVUYzbmZkRnd6ek5lS18tcW9iQXlEazhveVJ4dEIxZ3g0cHpnLWM2RmpMYUVVZ0VCU3ZPR2JkTGotbkh6WGVhQ0NJbzl3N3ktMnNtcU1OcWFBZ2p0bGtuVHFfVHNYQndDQXpTWHFjbTZlOVljWUM2ekFnME9OTV9SRVNXWjM2c0tKRWZiOEFURmRJZzlnNEtlbklXNXlzMWJnRkhjZU13djRsY3JpZzZf0gHQAUFVX3lxTE1CMGdYQ0pKRnp2NUR2MzlQUEo5eGdXUUVrbjVma3E5Wmt2YUZiOTh0cy1BV1c2MnhnVHQ0Q19NVWJoYmRGXzZTUk9ra014NTNSN0twdjdXZEZkMGp4VHJnRXpZSkJBbDFKbnBKX202Y1c1VXZtYWNlNjhXdFQ4YUVBWGUzNkpZNVE0V2toYnFkZnpabFkzbEVLMG0wa3RRbTVlaUxicEs4aldhZkhGY2dNeWtidFQxNFdJTFJIMFhvRHk5cGplWTFjcUs5TkFocC0?oc=5" target="_blank" rel="noopener noreferrer">Chinese group to build 10 smart city sites in Indonesia for US$50b <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg rg">US</span><span class="tg rg">China</span></div></div></article>
+<article class="item" data-themes="" data-regions="Global" data-source="Vietnam.vn · via Google News" data-group="World">
+      <div class="when"><b>05:54</b><span class="muted">10 h ago</span></div>
+      <div class="body"><div class="src">Vietnam.vn · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMipwFBVV95cUxQcWhHTjk0VVNielBRMDh2NEdIYTJ6ZlhkaWpMZV9yVFNyell3Z0dmbDdVeFctUERqOVdlT1hQcFJhbHVqZlhpa2F1amVBa3lSRWxKc3gtWU5kR0hrczBrLW5Lb01PbU5TWlNpdHdBb2pPZGF5eWN2MDZ2QTI2TXpCaDlYeVZyaXdFeUpyQ3FTNHhCUWFTUk9JUS1iRUJTR19MV1NOTG1oRQ?oc=5" target="_blank" rel="noopener noreferrer">APEC 2027: A key political and economic message for the whole world. <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg rg">Global</span></div></div></article>
+<article class="item" data-themes="Inflation &amp; rates" data-regions="US" data-source="CNBC Economy" data-group="World">
+      <div class="when"><b>03:26</b><span class="muted">13 h ago</span></div>
+      <div class="body"><div class="src">CNBC Economy</div>
+        <a class="hl" href="https://www.cnbc.com/2026/11/25/kevin-warsh-greenspan-fed-rates-ai-inflation.html" target="_blank" rel="noopener noreferrer">Liesman: Why Greenspan could bet on productivity — and Warsh needs to hike <span class="ext">↗</span></a>
+        <p class="sum">Alan Greenspan famously held the line on interest rates because he believed in the productivity promise of the internet boom. Why can&#x27;t Kevin Warsh do the same?</p>
+        <div class="tags"><span class="tg th">Inflation &amp; rates</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="" data-regions="Global" data-source="Yeni Safak English · via Google News" data-group="World">
+      <div class="when"><b>02:49</b><span class="muted">14 h ago</span></div>
+      <div class="body"><div class="src">Yeni Safak English · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMinAFBVV95cUxQU2hlMGQwOVl0Rm5DSWF1T1IwMmhKdy1iWmdXVlpCVERUYXo1VGpuQkFzVDFaZWRQdHpBYjNzdHhaLUpEcHh4MlYzcE96YmdfZ29LYjZrN3pic25HeFZUYXJvQVFhd1FLYjluaWprRWlGS190RVpMV0Y2bGc4N0xzbHVXV1VPTTFTSkFnSVB1LUhzdjRIbVlKdWdWNXE?oc=5" target="_blank" rel="noopener noreferrer">Bank of England&#x27;s Carney speaks following rates decision <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg rg">Global</span></div></div></article>
+<article class="item" data-themes="" data-regions="Global" data-source="Cornerstone Research · via Google News" data-group="World">
+      <div class="when"><b>02:10</b><span class="muted">14 h ago</span></div>
+      <div class="body"><div class="src">Cornerstone Research · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMiwAFBVV95cUxPTzctM0dyc0c3YVV4NGdiQkctZlpyUjB6VlAzdF9uSmdObDZhX0ZzNk5pSlhRcVhXTnlWN0FPemIyc2xvbWlCdGVlRkFjcmNLVG5SclNxaDVNV1l1RHRDb0xuVHRaVklObVZjR29pZnlVTXN4djBYbUtwR0g2ZlBVaTJvdVppOUs5ZHZBdmZxNDk1Rno5eExjNzhZaHYtWXpTR2xnWWFqMXV4cFFFMlpYcUxVekd3MFRVNjdaMzc3Qm0?oc=5" target="_blank" rel="noopener noreferrer">Cornerstone Research Named Outstanding Global Economic Firm in GCR 100 <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg rg">Global</span></div></div></article>
+<article class="item" data-themes="Energy &amp; commodities" data-regions="Global" data-source="Yeni Safak English · via Google News" data-group="World">
+      <div class="when"><b>01:42</b><span class="muted">15 h ago</span></div>
+      <div class="body"><div class="src">Yeni Safak English · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMikAFBVV95cUxPQnhDNF8wbWpKWnhVWEQwUWx4YUFmVmoyRTFIaDhIT1BBQ1R6akN3WHNtRlNyanF2ZXBwR0pKem9FbWsxR3hNYTNXTU5oVENGNnB1NXNOX2MycWlCWldrSTdiMzM0S25OdFo2REZtSVVwMWh4cWJqQTEzejRwSFdYWk5GclZIR2V3M0JRUXJUeWU?oc=5" target="_blank" rel="noopener noreferrer">Oil prices down amid lower oil demand forecast <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg th">Energy &amp; commodities</span><span class="tg rg">Global</span></div></div></article>
+<article class="item" data-themes="" data-regions="US" data-source="IntelliNews · via Google News" data-group="World">
+      <div class="when"><b>Wed 22:00</b><span class="muted">18 h ago</span></div>
+      <div class="body"><div class="src">IntelliNews · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMiuwFBVV95cUxOS1BkRzA1allxUWpUYzRBY2ZsdkVXM2xSTEd6dW5rVkFEVWJsSmF5dVVHd2ZUZnpoN2huY094b1RfcjNFb2gtcVhPNzd0Sll1cno0YUpLLV9qQy1URU5QRF9FTlZ1ZkNZMlZuWkZha0lhd1VPTnpWZnl6V0RRY2hSOXo5cGlGUTkwazFGSWx3LVdWeW52cC01OXM4bjhFdlU5LTJzTjRiRUItX0lLeGVlRENsektTTkxwQlpv?oc=5" target="_blank" rel="noopener noreferrer">US would lose most as rival trade blocs shrink world economy by 13% - Oxford Economics <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="Inflation &amp; rates|Energy &amp; commodities" data-regions="US" data-source="CNBC Economy" data-group="World">
+      <div class="when"><b>Wed 21:47</b><span class="muted">19 h ago</span></div>
+      <div class="body"><div class="src">CNBC Economy</div>
+        <a class="hl" href="https://www.cnbc.com/2026/11/25/holiday-inflation-thanksgiving-travel-food-gifts.html" target="_blank" rel="noopener noreferrer">Even the price of toys is on the rise. How Americans are scaling back holiday plans <span class="ext">↗</span></a>
+        <p class="sum">U.S. consumers face higher food, travel and gift costs in 2026 as inflation and Iran-war energy shocks pressure holiday budgets.</p>
+        <div class="tags"><span class="tg th">Inflation &amp; rates</span><span class="tg th">Energy &amp; commodities</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="" data-regions="Europe" data-source="Real Instituto Elcano · via Google News" data-group="World">
+      <div class="when"><b>Wed 21:16</b><span class="muted">19 h ago</span></div>
+      <div class="body"><div class="src">Real Instituto Elcano · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMirgFBVV95cUxPSDJHMmZnU1N6aUIySzVhYnlsd0JLMDBxSDc0OVd1Ykg4bVI1Zm5DMnBweGJyR1JubkdhbVFTMXFsVmh2X2RyNGNEbVlURHFOSWdzX29pS2ZndnF0d0s1azR0a3R3U1N5VEJ6WXZpUGwzRzFYZ0d3VkFraHNxTDBJTnA0U2hnUUhNMlJiUTJFVk91ZXhUaXNtTGdoY19hTHNaRDZIZ21fdHVPQUxpTWc?oc=5" target="_blank" rel="noopener noreferrer">Rethinking relations between the EU and the Global South <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg rg">Europe</span></div></div></article>
+<article class="item" data-themes="Trade &amp; tariffs" data-regions="US|China" data-source="Business Insider Africa · via Google News" data-group="World">
+      <div class="when"><b>Wed 20:16</b><span class="muted">20 h ago</span></div>
+      <div class="body"><div class="src">Business Insider Africa · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMi1wFBVV95cUxOTUs4TnhrX3JMZFozWDhCaDNfalc0UjdnSVd6cW12el9RU01kY0pxMWtIUEk1N3ZELWVRMkJaN3djdE9MWHZyYkNlVkgxUWlqZDdMOFkxalFQZWFSdUxSSFFGQ1g2c29tTFozMzBld1dIeU5KTTRPa3U4VFota29KTkZYT1R6djJ6WjdNaHdpOWRsRjFGT29CbVNhekNwSmZvLUVNZFZ4bHJMWWQ1bFRCYXhFazljNEptQnVoU3JSM3RXUzlfczlfcGZtY0dyV3dha183TzZjUQ?oc=5" target="_blank" rel="noopener noreferrer">After facing double hit from South Africa and Canada, world&#x27;s largest economy moves to slap China with fresh tariffs despite Trump&#x27;s $30 billion deal with Xi <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg th">Trade &amp; tariffs</span><span class="tg rg">US</span><span class="tg rg">China</span></div></div></article>
+<article class="item" data-themes="" data-regions="Global" data-source="WSJ · via Google News" data-group="World">
+      <div class="when"><b>Wed 19:50</b><span class="muted">21 h ago</span></div>
+      <div class="body"><div class="src">WSJ · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMinwFBVV95cUxOUWEzeFk2OFBKaGRsUXZmZlJnRmlPd29SdFJxR3FEcW81WTRZQzlacU9FR0hRV2M4OEc5NEZwZ0FPb0R0c3Fwd0ZWLUhPV3dRRzV2ajRMd1AtWkR6TnRwdUpqcWpjVng0UG5xaEFQaVQzaVdYMmluOF8tSmJlODVvSzRLQmVDYjN6OGk4NjcwdW9ORm1XbEVPd0dOYWdUajA?oc=5" target="_blank" rel="noopener noreferrer">World Trade Flows Surge as AI Boost Overwhelms Barriers <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg rg">Global</span></div></div></article>
+<article class="item" data-themes="Inflation &amp; rates" data-regions="US" data-source="CNBC Economy" data-group="World">
+      <div class="when"><b>Wed 19:48</b><span class="muted">21 h ago</span></div>
+      <div class="body"><div class="src">CNBC Economy</div>
+        <a class="hl" href="https://www.cnbc.com/2026/11/25/pce-inflation-report-october-2026.html" target="_blank" rel="noopener noreferrer">Fed’s preferred inflation gauge accelerated to 3.8% in October, raising the 2027 stakes for the central bank <span class="ext">↗</span></a>
+        <p class="sum">The personal consumption expenditures price index was expected to show an annual inflation rate of 3.8% in October, according to the Dow Jones consensus.</p>
+        <div class="tags"><span class="tg th">Inflation &amp; rates</span><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="Inflation &amp; rates|Companies &amp; markets" data-regions="India" data-source="RBI press releases" data-group="India">
+      <div class="when"><b>Wed 18:05</b><span class="muted">22 h ago</span></div>
+      <div class="body"><div class="src">RBI press releases<span class="st off">OFFICIAL</span></div>
+        <a class="hl" href="https://www.rbi.org.in/scripts/BS_PressReleaseDisplay.aspx?prid=64042" target="_blank" rel="noopener noreferrer">47th Half-Yearly Report on Management of Foreign Exchange Reserves: April – September 2026 <span class="ext">↗</span></a>
+        <p class="sum">It may be recalled that in February 2004 , the Reserve Bank initiated the practice of compiling half-yearly reports on the management of foreign exchange reserves and making them public to promote greater transparency and enhance disclosure in the management of the country’s…</p>
+        <div class="tags"><span class="tg th">Inflation &amp; rates</span><span class="tg th">Companies &amp; markets</span><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="Inflation &amp; rates" data-regions="India" data-source="RBI press releases" data-group="India">
+      <div class="when"><b>Wed 17:55</b><span class="muted">22 h ago</span></div>
+      <div class="body"><div class="src">RBI press releases<span class="st off">OFFICIAL</span></div>
+        <a class="hl" href="https://www.rbi.org.in/scripts/BS_PressReleaseDisplay.aspx?prid=64041" target="_blank" rel="noopener noreferrer">RBI Bulletin – November 2026 <span class="ext">↗</span></a>
+        <p class="sum">Today, the Reserve Bank released the November 2026 issue of its monthly Bulletin. The Bulletin includes six speeches, four articles and current statistics. The four articles are: I. State of the Economy; II. Shifting Drivers of Imported Inflation: COVID-19 Pandemic to the…</p>
+        <div class="tags"><span class="tg th">Inflation &amp; rates</span><span class="tg rg">India</span></div></div></article>
+<article class="item" data-themes="" data-regions="Asia" data-source="NHKニュース · via Google News" data-group="World">
+      <div class="when"><b>Wed 17:53</b><span class="muted">22 h ago</span></div>
+      <div class="body"><div class="src">NHKニュース · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMibkFVX3lxTE00VVE2WWtpcm9OZGczT1FmWTJTMHZQbVdvdFJlT2thZzlvNGNlM3g0SzV6bDE1VEtqOHdQXzRpYldOdEJkOGVEYmNoY016Yko4NEhtV1BhTlpaTXpUbEFzUUFuTDl4bklJbXlGTGpR?oc=5" target="_blank" rel="noopener noreferrer">North Korea&#x27;s economy powers higher | NHK WORLD-JAPAN News <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg rg">Asia</span></div></div></article>
+<article class="item" data-themes="" data-regions="US" data-source="Byline Times | Substack · via Google News" data-group="World">
+      <div class="when"><b>Wed 17:33</b><span class="muted">23 h ago</span></div>
+      <div class="body"><div class="src">Byline Times | Substack · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMid0FVX3lxTE9SOXZwMUR1cUMxZ3VITFJqZW4tdl82djl1SlRDVFF2Z0U0YnUzQWMyRWdhRXJIMk94dDg1dVhrWHJicV9sUUN6NFdwSW1KazB2aHdrTzBGSnJydnhBUWFZN3ppVjRvNTJHN1YxWXhiN2hSNk1ZVEpZ?oc=5" target="_blank" rel="noopener noreferrer">Nvidia is Trump’s ‘Dangerous Gamble’ With Global Economy <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg rg">US</span></div></div></article>
+<article class="item" data-themes="" data-regions="Global" data-source="Bloomberg.com · via Google News" data-group="World">
+      <div class="when"><b>Wed 17:30</b><span class="muted">23 h ago</span></div>
+      <div class="body"><div class="src">Bloomberg.com · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMisAFBVV95cUxPRUxPUG81RVdxTlg0eENJTldLNHFHLUg4TGFJc3VYTmE2Q2NwR2UtMTJkN3dlZzE1U1FvS1QzY2hNZ1JrMzFrZm93VFdqTEFUMzRUOWFOS2tpX3FTN0J2Y0NRbGdfTUtPdFVXQ0xMNnFjbGtfOFFMX2FkcThiSXpLYy1NTDlGeWg3emZQQlI1UGRlQ2pJUWVhNEdjcEt6LWZuWG54NGpGZHYzZnRvYU9DWQ?oc=5" target="_blank" rel="noopener noreferrer">What Your Grocery Cart Can Tell You About the Global Economy <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg rg">Global</span></div></div></article>
+<article class="item" data-themes="Energy &amp; commodities" data-regions="Global" data-source="World Economic Forum · via Google News" data-group="World">
+      <div class="when"><b>Wed 16:59</b><span class="muted">23 h ago</span></div>
+      <div class="body"><div class="src">World Economic Forum · via Google News</div>
+        <a class="hl" href="https://news.google.com/rss/articles/CBMimwFBVV95cUxNc3Etdnp5Nk1sNlFKY1VIZTJ5elZwWkZaZElrZUJmeThpWnZTOEo3OFJvMWtJSWozY2dCZl92NU5FYzZic2ZRN3FoRWhJbGRFaEZ6QjFGUzJmLVE2UF9HQ191X19tdjI1NG94bUhDUXNNclM0N1VpZmFFRWJ3MDdydXZ1NEpjLUwyTWU3aHpocnFpeS1rQloxNWxHSQ?oc=5" target="_blank" rel="noopener noreferrer">COP31’s electrification push, and more top energy stories <span class="ext">↗</span></a>
+        
+        <div class="tags"><span class="tg th">Energy &amp; commodities</span><span class="tg rg">Global</span></div></div></article>
+    </div>
+  </section>
+  <section class="panel feeds">
+    <h2>Sources</h2>
+    <ul><li><span class="up">✓</span> CNBC Economy <span class="muted">· World · 4 in 24 h</span></li><li><span class="up">✓</span> CNBC World <span class="muted">· World · 22 in 24 h</span></li><li><span class="up">✓</span> BBC Business <span class="muted">· World · 18 in 24 h</span></li><li><span class="up">✓</span> Al Jazeera <span class="muted">· World · 1 in 24 h</span></li><li><span class="up">✓</span> Google News: world economy <span class="muted">· World · 23 in 24 h</span></li><li><span class="up">✓</span> Economic Times <span class="muted">· India · 12 in 24 h</span></li><li><span class="up">✓</span> ET Markets <span class="muted">· India · 37 in 24 h</span></li><li><span class="up">✓</span> Mint <span class="muted">· India · 8 in 24 h</span></li><li><span class="up">✓</span> Mint Markets <span class="muted">· India · 35 in 24 h</span></li><li><span class="up">✓</span> Business Standard <span class="muted">· India · 21 in 24 h</span></li><li><span class="up">✓</span> BS Markets <span class="muted">· India · 33 in 24 h</span></li><li><span class="up">✓</span> Moneycontrol <span class="muted">· India · 9 in 24 h</span></li><li><span class="up">✓</span> Moneycontrol Markets <span class="muted">· India · 35 in 24 h</span></li><li><span class="up">✓</span> RBI press releases <span class="muted">· India · 2 in 24 h</span></li></ul>
+    <div class="label" style="margin-top:8px">Checked but not used</div>
+    <ul><li><span class="down">✗</span> The Guardian – Economics <span class="muted">· blocks automated readers (HTTP 403)</span></li><li><span class="down">✗</span> Moneycontrol RSS (5 feeds) <span class="muted">· frozen since 23 Apr 2024; Moneycontrol comes via Google News instead</span></li><li><span class="down">✗</span> PIB press releases <span class="muted">· Hindi only, no dates, almost no economy news</span></li><li><span class="down">✗</span> RBI notifications <span class="muted">· regulatory circulars; can be switched on</span></li></ul>
+    <p class="muted">Feeds and times are editable on the Settings page (planned: <code>NEWS_FEEDS</code>, <code>NEWS_FETCH_TIMES</code>). Only each publisher's public feed is read:
+      the headline, time and the short summary the publisher puts in it. Full articles open on the publisher's site; paywalls aren't bypassed.
+      Routine RBI auction results and Moneycontrol forum pages are filtered out.</p>
+  </section>
+</main>
+<footer>News for context while learning. Headlines and summaries are the publishers' own. Not investment advice.</footer>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  let theme = "", group = "";
+  const apply = () => {
+    const r = $("region").value, s = $("source").value, q = $("q").value.trim().toLowerCase();
+    let n = 0;
+    document.querySelectorAll(".item").forEach((el) => {
+      const ok = (!theme || el.dataset.themes.split("|").includes(theme)) && (!r || el.dataset.regions.split("|").includes(r))
+        && (!group || el.dataset.group === group) && (!s || el.dataset.source === s) && (!q || el.textContent.toLowerCase().includes(q));
+      el.hidden = !ok; n += ok;
+    });
+    $("shown").textContent = `${n} shown (sample list)`;
+  };
+  document.querySelectorAll(".chip").forEach((b) => b.addEventListener("click", () => {
+    theme = theme === b.dataset.theme ? "" : b.dataset.theme;
+    document.querySelectorAll(".chip").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.theme === theme)));
+    apply();
+  }));
+  document.querySelectorAll(".grp").forEach((b) => b.addEventListener("click", () => {
+    group = b.dataset.group;
+    document.querySelectorAll(".grp").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    apply();
+  }));
+  ["region", "source", "q"].forEach((id) => $(id).addEventListener("input", apply));
+  $("clear").addEventListener("click", () => { theme = ""; group = ""; $("region").value = $("source").value = $("q").value = "";
+    document.querySelectorAll(".chip").forEach((x) => x.setAttribute("aria-pressed", "false"));
+    document.querySelectorAll(".grp").forEach((x) => x.setAttribute("aria-pressed", String(!x.dataset.group))); apply(); });
+  apply();
+})();
+</script>
+</body>
+</html>

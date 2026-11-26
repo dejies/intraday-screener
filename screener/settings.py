@@ -25,11 +25,19 @@ GATES = {
     "sector_leaders": ["SECTOR_RS", "STOCK_VS_SECTOR", "SECTOR_TOP_PCT", "CUM_RVOL", "ABOVE_VWAP", "EMA9_GT_EMA20"],
 }
 GROUPS = ["Universe and session", "Strategies", "Setup score", "Hard filters and votes", "Indicators and timeframes",
-          "Candidates", "Alerts", "Refresh intervals", "Access token", "Dashboard"]
+          "Candidates", "Alerts", "Refresh intervals", "Access token", "Dashboard", "World news"]
 
 
 def F(key, label, type_, group, **kw) -> dict:
     return {"key": key, "label": label, "type": type_, "group": group, **kw}
+
+
+def _news_feeds() -> list[dict]:
+    try:
+        import config
+        return list(getattr(config, "NEWS_FEEDS", []))
+    except Exception:
+        return []
 
 
 def _fields() -> list[dict]:
@@ -182,6 +190,12 @@ def _fields() -> list[dict]:
           nullable=True, help="also in the dashboard's filter bar; affects only what the tables list"),
         F("TABLE_CHG_PCT_MAX", "Tables: change % today to (blank = no limit)", "float", GROUPS[9], min=-100, max=100,
           nullable=True),
+
+        F("NEWS_ENABLED", "Fetch economic news for the World news tab", "bool", GROUPS[10], restart=True),
+        F("NEWS_FETCH_TIMES", "News update times (IST, every day)", "times", GROUPS[10], max_items=24,
+          help="comma-separated HH:MM; the tab also has Refresh now"),
+        F("NEWS_SOURCES", "News sources", "multi", GROUPS[10], options=[f["name"] for f in _news_feeds()]),
+        F("NEWS_KEEP_DAYS", "Keep news for (days)", "int", GROUPS[10], min=1, max=30),
     ]
     for x in f:
         x.setdefault("restart", False)

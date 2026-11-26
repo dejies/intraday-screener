@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 DAILY = "D"
 
 SCHEMA = """
@@ -183,6 +183,21 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
     backtest_json TEXT,                 -- exits, sizing, costs used
     summary_json TEXT                   -- per variant / strategy / sample metrics and breakdowns
 );
+CREATE TABLE IF NOT EXISTS news (               -- v8: the dashboard's World news tab (screener/news.py)
+    link         TEXT PRIMARY KEY,
+    title        TEXT NOT NULL,
+    summary      TEXT,
+    source       TEXT,
+    feed         TEXT,
+    grp          TEXT,                            -- World | India | India markets
+    published_at TEXT NOT NULL,                   -- IST
+    fetched_at   TEXT,
+    themes       TEXT,                            -- JSON list
+    regions      TEXT,                            -- JSON list
+    official     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS news_by_time ON news (published_at);
+
 CREATE TABLE IF NOT EXISTS backtest_trades (
     run_id TEXT NOT NULL, variant TEXT NOT NULL, strategy TEXT NOT NULL, symbol TEXT NOT NULL, sector TEXT,
     session_day TEXT NOT NULL, sample TEXT, signal_time TEXT, entry_time TEXT NOT NULL, entry REAL, exit_time TEXT,
@@ -577,6 +592,34 @@ class MarketStore:
             for table in ("indicator_snapshots", "scanner_evaluations", "candidate_events", "scanner_candidates"):
                 out[table] = self.conn.execute(f"DELETE FROM {table} WHERE session_day < ?", (cutoff,)).rowcount
         return out
+
+    # ------------------------------------------------------------------ news
+    def save_news(self, items: list[dict]) -> int:
+        rows = [(i["link"], i["title"], i.get("summary"), i.get("source"), i.get("feed"), i.get("group"), i["published"],
+                 i.get("fetched_at"), json.dumps(i.get("themes") or []), json.dumps(i.get("regions") or []),
+                 int(bool(i.get("official")))) for i in items]
+        with self._lock, self.conn:
+            cur = self.conn.executemany(
+                "INSERT OR IGNORE INTO news (link, title, summary, source, feed, grp, published_at, fetched_at, themes, "
+                "regions, official) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+        return cur.rowcount
+
+    def load_news(self, since: str) -> list[dict]:
+        with self._lock:
+            rows = self.conn.execute("SELECT * FROM news WHERE published_at >= ? ORDER BY published_at DESC", (since,)).fetchall()
+        return [{"link": r["link"], "title": r["title"], "summary": r["summary"] or "", "source": r["source"], "feed": r["feed"],
+                 "group": r["grp"], "published": r["published_at"], "fetched_at": r["fetched_at"],
+                 "themes": json.loads(r["themes"] or "[]"), "regions": json.loads(r["regions"] or "[]"),
+                 "official": bool(r["official"])} for r in rows]
+
+    def prune_news(self, before: str) -> int:
+        with self._lock, self.conn:
+            return self.conn.execute("DELETE FROM news WHERE published_at < ?", (before,)).rowcount
+
+    def news_last_fetched(self) -> str | None:
+        with self._lock:
+            row = self.conn.execute("SELECT MAX(fetched_at) FROM news").fetchone()
+        return row[0] if row else None
 
     # ------------------------------------------------------------------ stats
     def coverage_summary(self, symbol: str | None = None, rows: bool = False) -> list[dict]:

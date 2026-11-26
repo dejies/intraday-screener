@@ -673,14 +673,21 @@
     }
     const ordered = Object.values(META).sort((a, b) => a.order - b.order);
     const tabs = [["all", "All candidates"], ...ordered.filter((m) => m.enabled).map((m) => [m.short, m.name]),
-      ["votes", "Bullish / Bearish (votes)"], ["alerts", "Alert history"]];
+      ["votes", "Bullish / Bearish (votes)"], ["alerts", "Alert history"], ...(s.news ? [["news", "World news"]] : [])];
+    if (s.news) counts.news = s.news.count;
     if (!tabs.some(([k]) => k === TAB)) TAB = "all";
     const unread = [...ALERTS.values()].filter((a) => !a.acknowledged).length;
     const tabHtml = tabs.map(([k, name]) => `<button role="tab" data-tab="${k}" aria-selected="${k === TAB}">${esc(name)}${k === "votes" ? "" : `<span class="n">${k === "alerts" ? unread : counts[k] || 0}</span>`}</button>`).join("");
     if ($("tabs")._html !== tabHtml) { $("tabs").innerHTML = tabHtml; $("tabs")._html = tabHtml; }
-    const votes = TAB === "votes", alertsTab = TAB === "alerts";
-    $("votesGrid").hidden = !votes; $("candWrap").hidden = votes || alertsTab; $("candLogPanel").hidden = votes || alertsTab;
+    const votes = TAB === "votes", alertsTab = TAB === "alerts", newsTab = TAB === "news";
+    $("votesGrid").hidden = !votes; $("candWrap").hidden = votes || alertsTab || newsTab;
+    $("candLogPanel").hidden = votes || alertsTab || newsTab;
+    $("rowFilters").hidden = newsTab;                     // stock filters mean nothing for news
     placeAlertCentre(alertsTab);
+    if (window.NewsTab) {
+      if (newsTab) { window.NewsTab.show($("newsTab")); window.NewsTab.updated(s.news && s.news.updated); } else window.NewsTab.hide();
+    }
+    if (newsTab) { $("tabNote").textContent = "Economic news from public feeds, updated on a schedule. Headlines open on the publisher's site."; return; }
     if (alertsTab) { $("tabNote").textContent = "Every alert of the day (or pick a date). The same alert centre is also below the tables."; return; }
     if (votes) { $("tabNote").textContent = "The original view: bullish/bearish by directional votes (score out of " + SCORE_MAX + ")."; return; }
     const key = keyOf(TAB);

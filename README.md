@@ -767,6 +767,27 @@ Treat each value as a hypothesis to test, not a rule.
 - The alert thresholds, scopes and cooldowns are first guesses. Expect to tune them after a few live
   sessions (`ALERT_RULES`).
 
+## World news tab
+
+The dashboard's **World news** tab shows economic news from public RSS feeds (`screener/news.py`): the
+headline, time, the publisher's own short summary and a link that opens the article on the publisher's
+site. Nothing is summarised by AI, and no Dhan request is used.
+
+- **When:** every day at 06:00, 08:00, 10:00, 12:00, 14:00, 18:00, 20:00 and 22:00 IST
+  (`NEWS_FETCH_TIMES`), at startup when the newest stories are over 2 hours old, and with **Refresh now**.
+  A time missed while the computer slept is caught up when it wakes.
+- **Sources (14):** World: CNBC Economy, CNBC World, BBC Business, Al Jazeera (economy section only),
+  Google News "world economy". India: Economic Times, ET Markets, Mint, Business Standard, Moneycontrol
+  (through Google News: Moneycontrol's own RSS stopped in 2024), RBI press releases (official; routine
+  auction and market-operation notices left out). **India markets**, in its own section because it's
+  mostly news about individual stocks: Mint Markets, BS Markets, Moneycontrol Markets.
+  Switch sources off on the Settings page (*World news*); the list itself is `NEWS_FEEDS` in `config.py`.
+- **On the tab:** the main themes counted from the headlines (trade & tariffs, inflation & rates, energy
+  & commodities, …), All / World / India, region, source and search filters, the India markets section,
+  and each source's status. Stories under 2 hours old are marked NEW, RBI's OFFICIAL.
+- Stories are de-duplicated (same link, or the same headline from two feeds), tagged by keyword rules,
+  and kept for 3 days (`NEWS_KEEP_DAYS`) in the database's `news` table (schema v8).
+
 ## Access-token auto-renewal
 
 Dhan access tokens last 24 hours. Dhan's `RenewToken` call swaps a token that's **still valid** for a

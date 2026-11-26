@@ -157,6 +157,8 @@ that the feed badge goes back to *live* within a few seconds (this is the first 
 | Problem | Likely cause | Fix |
 |---|---|---|
 | "Dhan rejected the credentials" / "token expired" | the app was stopped for over a day, or renewal failed | new token at web.dhan.co, put it in `.env` (picked up within a minute) |
+| World news tab: a source shows ✗ | that site refused or changed its feed (the others still work) | wait for the next update; if it stays ✗, switch it off on the Settings page (*World news*) |
+| World news tab is empty | first start without internet, or `NEWS_ENABLED` off | check the internet connection, then **Refresh now** |
 | A `history.py` / `backtest.py` run fails with an auth error | the app renewed the token while it ran | run it again (it reads `.env` at start) |
 | Nothing updates, "NSE holiday" in the header | exchange holiday | nothing; the tables show the last session |
 | DATA STALE during market hours | network, Dhan outage, or (live feed) a holiday missing from the calendar | check the network; `manage.py check`; add the holiday |

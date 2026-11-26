@@ -679,6 +679,7 @@ class ScreenerEngine:
         self.rows: list[dict] = []
         self.alerts = AlertCentre(cfg, store, source=getattr(client, "label", None))   # spec M8
         self.token_status = None                # set by app.py in live mode: TokenManager.status
+        self.news_status = None                 # set by app.py: NewsManager.brief (World news tab count)
         self.alert_rules = AlertRules(cfg)
         self.monitor = SystemMonitor(cfg)
         self._strategy_meta = strat.strategy_meta(cfg)
@@ -734,6 +735,16 @@ class ScreenerEngine:
             return fn()
         except Exception as exc:
             log.warning("Token status failed: %s", exc)
+            return None
+
+    def _news_status(self) -> dict | None:
+        fn = getattr(self, "news_status", None)
+        if fn is None:
+            return None
+        try:
+            return fn()
+        except Exception as exc:
+            log.warning("News status failed: %s", exc)
             return None
 
     def _auth_alert(self, message: str) -> None:
@@ -1286,6 +1297,7 @@ class ScreenerEngine:
                 "calendar": get_calendar().coverage(now.date()),
                 "session_day": self.session_day,
                 "token": self._token_status(),
+                "news": self._news_status(),
                 "ready": self.ready,
                 "last_ltp_update": self.last_ltp_update.strftime("%H:%M:%S") if self.last_ltp_update else None,
                 "last_candle_update": self.last_candle_update.strftime("%H:%M:%S") if self.last_candle_update else None,
