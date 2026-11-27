@@ -59,11 +59,22 @@
     const tip = [r.company, r.sector, r.industry ? `Dhan industry: ${r.industry}` : "", r.sector_source ? `source: ${r.sector_source}` : ""].filter(Boolean).join(" · ");
     return `<span class="sector ${r.sector_source && r.sector_source.startsWith("derived") ? "derived" : ""}" title="${esc(tip)}">${esc(r.sector)}</span>`;
   };
+  // Volume-confirmed breakout (screener/pricevol.py): price vs volume over the last few 1-min candles
+  const PV = { strong_buying: ["↑↑", "up", "Price ↑ volume ↑: stronger breakout confirmation"],
+    caution: ["↑↓", "warn", "Price ↑ volume ↓: caution, the rise isn't backed by volume"],
+    strong_selling: ["↓↑", "down", "Price ↓ volume ↑: stronger selling pressure"],
+    weak_selling: ["↓↓", "muted", "Price ↓ volume ↓: weak selling pressure"] };
+  const pvBadge = (r) => {
+    const p = PV[r.pv_state];
+    if (!p) return "";
+    const tip = `${p[2]} (last ${CFG.pv_bars || 3} one-minute candles: price ${num(r.pv_price_pct)}%, volume ${num(r.pv_vol_ratio, 1)}× the 20 before)`;
+    return ` <span class="pv pv-${p[1]}" title="${esc(tip)}">${p[0]}</span>`;
+  };
   const barRvolCell = (r) => {
-    if (r.bar_rvol === null || r.bar_rvol === undefined) return '<span class="muted">—</span>';
+    if (r.bar_rvol === null || r.bar_rvol === undefined) return '<span class="muted">—</span>' + pvBadge(r);
     const t = (r.bar_time || "").slice(11, 16);
     const tip = `${r.bar_rvol_class} · ${t} bar: ${num(r.bar_volume, 0)} vs avg ${num(r.bar_avg_volume, 0)} (bar ${num(r.bar_change_pct)}%)`;
-    return `<span class="rv rv-${(r.bar_rvol_class || "").toLowerCase()}" title="${esc(tip)}">${r.bar_spike ? "⚡ " : ""}${num(r.bar_rvol, 2)}×</span>`;
+    return `<span class="rv rv-${(r.bar_rvol_class || "").toLowerCase()}" title="${esc(tip)}">${r.bar_spike ? "⚡ " : ""}${num(r.bar_rvol, 2)}×</span>${pvBadge(r)}`;
   };
   let EMA_PERIODS = [9, 20, 50, 200];
   const emaCell = (r) => {
@@ -356,7 +367,7 @@
   // Per-viewer preferences (this browser only). Everything is always kept in the alert centre.
   const DEFAULT_PREFS = {
     toastMin: "MEDIUM", notifyMin: "HIGH", sound: false, confirmedOnly: false,
-    toast: { strategy_qualified: true, score_cross: true, breakout: true, rvol: true, feed: true, auth: true, data_error: true, token: true, refresh: true, sleep: true },
+    toast: { strategy_qualified: true, score_cross: true, breakout: true, rvol: true, feed: true, auth: true, data_error: true, token: true, refresh: true, sleep: true, watch_coiling: true, watch_pressing: true },
     soundKinds: { strategy_qualified: true, breakout: true, feed: true, auth: true, token: true, refresh: true, sleep: true },
   };
   function loadPrefs() {
@@ -656,6 +667,7 @@
       <p><strong>RVOL 5m</strong> (second number). The last completed ${c.interval}-min candle's volume divided by the average volume of the <em>same time slot</em> (e.g. 10:15–10:20) over the previous ${c.day_rvol_sessions} sessions, so the busy open isn't compared with a quiet lunch hour. ≥ ${c.candle_rvol_threshold}× is highlighted. The forming candle appears in the tooltip as LIVE / INCOMPLETE and never counts as a signal.</p>
       <p><strong>Bar RVOL (⚡ alerts).</strong> Volume of the latest <em>completed</em> ${c.rvol_interval}-min candle divided by the average volume of the ${c.rvol_lookback} completed candles before it (method from the reference intraday_scanner project). Bands: LOW &lt; 0.8, NORMAL &lt; 1.2, HIGH &lt; 2.0, VERY HIGH ≥ 2.0. An alert fires when it is above <strong>${c.rvol_threshold}×</strong> on bars from ${esc(c.rvol_from)}, at most once per stock every ${c.rvol_cooldown} min. The bar's colour (green/red) gives the direction. Every NSE equity share is screened; BE/BZ (trade-for-trade) and SM/ST/SZ (SME) stocks carry a tag and get live data and spike alerts only.</p>
       <p><strong>Filters.</strong> ${c.min_turnover_cr > 0 ? `Stocks with 20-day turnover below ₹${c.min_turnover_cr} cr or ATR below ${c.min_atr_pct}% go to “Neutral &amp; filtered”: too illiquid or too quiet to trade intraday.` : `Stocks with ATR below ${c.min_atr_pct}% go to “Neutral &amp; filtered”: too quiet to trade intraday. The turnover filter is off (Settings → Min 20-day turnover), so thinly traded stocks are included: check the bid/ask before trusting a signal.`}${priceBandText(c)}</p>
+      <p><strong>Volume-confirmed breakout (↑↑ ↑↓ ↓↑ ↓↓ next to Bar RVOL).</strong> Price and volume over the last ${c.pv_bars} completed 1-min candles: <span class="up">↑↑</span> price up, volume up = stronger breakout confirmation; <span class="warn">↑↓</span> price up, volume down = caution; <span class="down">↓↑</span> price down, volume up = stronger selling pressure; <span class="muted">↓↓</span> price down, volume down = weak selling. "Up/down" means a move of at least ${c.pv_price_pct}% and volume at least ${c.pv_volume_up}× (or at most ${c.pv_volume_down}×) the 20 candles before. Breakout alerts judge it on the minute of the breakout (its volume pace so far) and say so in the text; ${c.pv_high ? "a breakout backed by volume is HIGH" : "it doesn't change their severity"}.</p>
       <p><strong>Breakouts.</strong> Fire once per stock per level per day when price crosses the opening-range high/low, previous-day high/low (PDH/PDL) or 52-week high/low by more than ${c.buffer_pct}%. “Confirmed” = at least ${c.min_confirmations} of MACD, DMI, ADX, RVOL and VWAP agree.</p>
       <p><strong>Sector strength.</strong> Sector RS = sector return − NIFTY 50 return, and <em>vs Sector</em> = stock return − its sector's return, each measured from the same start time on a 5-minute grid (5/15/30/60 min ago) or the previous close (day) to now. Hover for every horizon. A sector is measured by its NSE sector index where one exists, otherwise by the median of its liquid EQ-series stocks. <em>P92</em> means the stock is beating 92% of its sector peers today. “Falling less than Nifty” marks a sector that outperforms while still going down.</p>
       <p><strong>Live feed / all-NSE mode.</strong> Every stock streams price, day volume and the exchange's own VWAP over Dhan's WebSocket, and 1-min candles are built from those ticks, so ⚡ volume-spike alerts cover the whole universe (spike candle must trade at least ₹${c.rvol_min_value_lakh} lakh; Bar RVOL starts 20 candles after the feed connects). The full MACD/DMI/ADX scan runs on the most active stocks that pass the filters (by expected turnover today: the 20-day average, or today's traded value so far scaled to a full day, whichever is larger), refreshed right after each 5-min candle closes (strategy candidates and the stocks with the biggest volume bursts first); ${c.breakouts_need_filters ? "breakout pop-ups are limited to those stocks" : "breakouts fire for every stock"}. Use the search box to find any stock.</p>
@@ -673,20 +685,26 @@
     }
     const ordered = Object.values(META).sort((a, b) => a.order - b.order);
     const tabs = [["all", "All candidates"], ...ordered.filter((m) => m.enabled).map((m) => [m.short, m.name]),
-      ["votes", "Bullish / Bearish (votes)"], ["alerts", "Alert history"], ...(s.news ? [["news", "World news"]] : [])];
+      ["votes", "Bullish / Bearish (votes)"], ["alerts", "Alert history"], ...(s.watch ? [["watch", "Breakout watch"]] : []),
+      ...(s.news ? [["news", "World news"]] : [])];
     if (s.news) counts.news = s.news.count;
+    if (s.watch) counts.watch = s.watch.count;
     if (!tabs.some(([k]) => k === TAB)) TAB = "all";
     const unread = [...ALERTS.values()].filter((a) => !a.acknowledged).length;
     const tabHtml = tabs.map(([k, name]) => `<button role="tab" data-tab="${k}" aria-selected="${k === TAB}">${esc(name)}${k === "votes" ? "" : `<span class="n">${k === "alerts" ? unread : counts[k] || 0}</span>`}</button>`).join("");
     if ($("tabs")._html !== tabHtml) { $("tabs").innerHTML = tabHtml; $("tabs")._html = tabHtml; }
-    const votes = TAB === "votes", alertsTab = TAB === "alerts", newsTab = TAB === "news";
-    $("votesGrid").hidden = !votes; $("candWrap").hidden = votes || alertsTab || newsTab;
-    $("candLogPanel").hidden = votes || alertsTab || newsTab;
-    $("rowFilters").hidden = newsTab;                     // stock filters mean nothing for news
+    const votes = TAB === "votes", alertsTab = TAB === "alerts", newsTab = TAB === "news", watchTab = TAB === "watch";
+    $("votesGrid").hidden = !votes; $("candWrap").hidden = votes || alertsTab || newsTab || watchTab;
+    $("candLogPanel").hidden = votes || alertsTab || newsTab || watchTab;
+    $("rowFilters").hidden = newsTab || watchTab;         // the table filters don't apply to these tabs
     placeAlertCentre(alertsTab);
     if (window.NewsTab) {
       if (newsTab) { window.NewsTab.show($("newsTab")); window.NewsTab.updated(s.news && s.news.updated); } else window.NewsTab.hide();
     }
+    if (window.WatchTab) {
+      if (watchTab) { window.WatchTab.show($("watchTab")); window.WatchTab.updated(s.watch); } else window.WatchTab.hide();
+    }
+    if (watchTab) { $("tabNote").textContent = "A heads-up before a possible breakout: stocks coiling under or pressing a resistance level, and how often a breakout followed. Not a buy signal."; return; }
     if (newsTab) { $("tabNote").textContent = "Economic news from public feeds, updated on a schedule. Headlines open on the publisher's site."; return; }
     if (alertsTab) { $("tabNote").textContent = "Every alert of the day (or pick a date). The same alert centre is also below the tables."; return; }
     if (votes) { $("tabNote").textContent = "The original view: bullish/bearish by directional votes (score out of " + SCORE_MAX + ")."; return; }
@@ -830,6 +848,14 @@
   let DETAIL = { sym: null, interval: Number(store.get("chartInterval")) || 5, lastBar: null, data: null, chart: null, at: 0 };
   const kv = (pairs) => `<div class="kv">${pairs.filter(([, v]) => v !== undefined).map(([k, v]) => `<div><span>${esc(k)}</span>${v}</div>`).join("")}</div>`;
   const pctRow = (label, o) => `<tr><td>${esc(label)}</td>${["5m", "15m", "30m", "60m", "day"].map((h) => `<td>${o && o[h] !== null && o[h] !== undefined ? signed(o[h], 2) : '<span class="muted">—</span>'}</td>`).join("")}</tr>`;
+  function watchHtml(list) {
+    if (!list || !list.length) return "";
+    const what = (w) => w.outcome === "broke" ? `<span class="up">broke ${esc((w.broke_at || "").slice(11, 16))} (after ${num(w.minutes_to_break, 1)} min)</span>`
+      : w.outcome === "no_break" ? '<span class="muted">no break</span>' : w.outcome === "no_data" ? '<span class="muted">no data</span>'
+      : w.broke_at ? `<span class="up">broke ${esc(w.broke_at.slice(11, 16))}</span>, measuring` : `measuring, ${num(w.minutes_left, 0)} min left`;
+    return `<h3>Breakout watch today</h3><ul class="gates">${list.map((w) => `<li>${esc((w.time || "").slice(0, 5))} <span class="wk wk-${esc(w.kind)}">${w.kind === "coiling" ? "COILING" : "PRESSING"}</span>
+      ${esc(w.zone || w.level_name)} at ₹${num(w.price)} · ${what(w)} <span class="muted">· best ${signed(w.max_gain_pct, 2, "%")}, worst ${signed(w.max_drop_pct, 2, "%")}</span></li>`).join("")}</ul>`;
+  }
   function detailHtml(d) {
     const rv = d.rvol || {}, dd = rv.day_detail || {}, cd = rv.candle_detail || {}, lv = d.levels || {}, iv = d.indicators || {}, q = d.quality || {};
     const ret = d.returns || {};
@@ -857,7 +883,9 @@
         ["Usual to the same time", num(dd.baseline, 0)], ["Sessions in baseline", `${dd.sessions ?? "—"} (min ${dd.min_sessions ?? "—"})`],
         ["5m RVOL", rv.candle !== null && rv.candle !== undefined ? `${num(rv.candle, 2)}× (${esc(cd.bar || "")})` : "—"],
         ["That candle / usual", `${num(cd.volume, 0)} / ${num(cd.baseline, 0)}`], ["Forming candle", cd.live_rvol !== null && cd.live_rvol !== undefined ? `${num(cd.live_rvol, 2)}× LIVE` : "—"],
-        ["Bar RVOL (1-min)", rv.bar !== null && rv.bar !== undefined ? `${num(rv.bar, 2)}× (${esc((rv.bar_time || "").slice(11, 16))})` : "—"]])}
+        ["Bar RVOL (1-min)", rv.bar !== null && rv.bar !== undefined ? `${num(rv.bar, 2)}× (${esc((rv.bar_time || "").slice(11, 16))})` : "—"],
+        ["Price · volume", rv.pv_price_pct !== null && rv.pv_price_pct !== undefined
+          ? `${esc(rv.pv_label)} <span class="muted">(last ${rv.pv_bars} min: ${num(rv.pv_price_pct)}% on ${num(rv.pv_vol_ratio, 1)}× volume)</span>` : "—"]])}
       <h3>Indicators (completed candles)</h3>
       ${kv([["MACD", `${num(iv.macd, 3)} / ${num(iv.macd_signal, 3)} · hist ${num(iv.macd_hist, 3)}`], ["MACD state", esc((iv.macd_state || "—").replace(/_/g, " "))],
         ["15-min MACD", esc((iv.macd15_state || "—").replace(/_/g, " "))], ["RSI", `${num(iv.rsi, 1)} (${iv.rsi_slope > 0 ? "↗" : iv.rsi_slope < 0 ? "↘" : "→"})`],
@@ -870,6 +898,7 @@
         ["Prev close", num(lv.pdc)], ["52-week", `${num(lv.w52_low)} – ${num(lv.w52_high)}`], ["Pivot · CPR", `${num(lv.pivot)} · ${num(lv.cpr_bc)}–${num(lv.cpr_tc)}`],
         ["R1 / S1", `${num(lv.r1)} / ${num(lv.s1)}`], ["R2 / S2", `${num(lv.r2)} / ${num(lv.s2)}`],
         ["Fresh break", d.breakout_level ? `${esc(d.breakout_level.name)} ${num(d.breakout_level.level)} (${esc(d.breakout_level.bar)})` : "—"]])}
+      ${watchHtml(d.watch)}
       <h3>Alerts today</h3>
       ${alerts ? `<ul class="gates">${alerts}</ul>` : '<p class="muted">None for this stock.</p>'}
       <h3>Data quality</h3>

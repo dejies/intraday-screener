@@ -22,11 +22,13 @@ from . import indicators as ind
 from . import relative_strength as rsmod
 from . import alerts as alertmod
 from . import logs
+from . import pricevol
 from . import scoring
 from . import strategies as strat
 from .alerts import AlertCentre, AlertRules, SystemMonitor
 from .candidates import CandidateBook
 from .market_calendar import get_calendar
+from .watch import BreakoutWatch, summarise as watch_summary
 
 log = logging.getLogger(__name__)
 
@@ -667,6 +669,7 @@ class ScreenerEngine:
         self.index_bars: dict[str, tuple] = {}  # sid -> (bar start times, closes), today's 1-min candles
         self.closes1: dict[str, tuple] = {}     # sym -> recent 1-min (times, closes)
         self.closes5: dict[str, tuple] = {}     # sym -> recent 5-min (times, closes)
+        self.bars1: dict[str, pd.DataFrame] = {}  # sym -> 1-min candles from the last refresh (watchlist mode)
         self.sectors: list[dict] = []
         self.breadth: dict = {}
         self.nifty_ret: dict = {}
@@ -684,6 +687,7 @@ class ScreenerEngine:
         self.monitor = SystemMonitor(cfg)
         self._strategy_meta = strat.strategy_meta(cfg)
         self.tracker = BreakoutTracker(cfg, id_source=self.alerts.next_id)
+        self.watch = BreakoutWatch(cfg, store)  # pre-breakout heads-up + its measured hit rate (screener/watch.py)
         self._chart_lock = threading.Lock()
         self._chart_cache: dict[tuple, tuple[float, dict]] = {}
         self.book = CandidateBook(cfg)          # strategy candidates + lifecycle (spec M7)
@@ -962,7 +966,9 @@ class ScreenerEngine:
         try:
             return {"alerts": self.store.alerts_for_day(day), "next_id": self.store.max_alert_id() + 1,
                     "candidates": self.store.candidates_for_day(str(day)),
-                    "events": self.store.candidate_events_for_day(str(day))}
+                    "events": self.store.candidate_events_for_day(str(day)),
+                    "watch": self.store.watch_signals(day=str(day)),
+                    "watch_history": self.store.watch_counts(before=str(day))}
         except Exception as exc:
             self._error(f"Could not restore today's alerts / candidates: {exc}")
             return None
@@ -972,6 +978,7 @@ class ScreenerEngine:
         self.alerts.new_session(day, r.get("alerts"))
         self.alert_rules.new_session(day)
         self.tracker.new_session(day, r.get("alerts"), r.get("next_id"))
+        self.watch.new_session(day, r.get("watch"), r.get("watch_history"))
         if self.book.new_session(day, r.get("candidates"), r.get("events")):
             self._eval_saved = {}
 
@@ -1121,6 +1128,7 @@ class ScreenerEngine:
         spikes: dict[str, dict] = {}
         closes1: dict[str, tuple] = {}
         closes5: dict[str, tuple] = {}
+        bars1: dict[str, pd.DataFrame] = {}
         for sym, sid in self.ids.items():
             try:
                 df = self.client.intraday_candles(sid, start, now, cfg.CANDLE_INTERVAL_MIN)
@@ -1136,6 +1144,7 @@ class ScreenerEngine:
                     bars = self.client.intraday_candles(sid, spike_start, now, cfg.RVOL_SPIKE_INTERVAL_MIN)
                     if cfg.RVOL_SPIKE_INTERVAL_MIN == 1 and bars is not None and not bars.empty:
                         closes1[sym] = (bars.index[-70:].to_numpy(), bars["close"].to_numpy(dtype=float)[-70:])
+                        bars1[sym] = bars[bars.index >= pd.Timestamp(now.date())]    # today's, for Breakout watch
                     series = ind.bar_rvol_series(bars, now, cfg.RVOL_SPIKE_INTERVAL_MIN,
                                                  cfg.RVOL_SPIKE_LOOKBACK_BARS).tail(30)
                     if not series.empty:
@@ -1157,6 +1166,7 @@ class ScreenerEngine:
             self.spikes.update(spikes)
             self.closes1.update(closes1)
             self.closes5.update(closes5)
+            self.bars1.update(bars1)
             self.session_day = session_day
             self._start_session(session_day, restored)
             self.last_candle_update = now
@@ -1223,6 +1233,20 @@ class ScreenerEngine:
     def _rvol_not_before(self) -> datetime | None:
         return None
 
+    def _live_pv(self, row: dict, now: datetime, bars: list[dict]) -> dict | None:
+        """Price-volume state for a breakout alert. Watchlist mode: the completed 1-min candles; the live
+        feed engine adds the forming minute at its pace so far (LiveScreenerEngine._live_pv)."""
+        return pricevol.from_bars(bars, self.cfg)
+
+    def _watch_bars(self, sym: str):
+        """Today's 1-min candles with highs and lows, for Breakout watch: (start times, open, high, low, close,
+        volume). Watchlist mode: from the last candle refresh; the live feed engine reads its own bars."""
+        df = self.bars1.get(sym)
+        if df is None or df.empty:
+            return None
+        return (df.index.to_numpy(), df["open"].to_numpy(float), df["high"].to_numpy(float), df["low"].to_numpy(float),
+                df["close"].to_numpy(float), df["volume"].to_numpy(float))
+
     def _finish_rows(self, rows: list[dict], now: datetime) -> None:
         """Shared by every mode: benchmark, relative strength, classification, alerts, ranking."""
         cfg = self.cfg
@@ -1241,6 +1265,8 @@ class ScreenerEngine:
             self._ema_alignment(row)
         self._relative_strength(rows, now)
 
+        not_before = self._rvol_not_before()
+        watching = self.watch.enabled
         for row in rows:
             row["ema_stack"] = ind.ema_stack(row.get("ltp"), {p: row.get(f"ema{p}") for p in cfg.EMA_PERIODS})
             prev = row.pop("d_ema_prev", None) or {}
@@ -1252,13 +1278,25 @@ class ScreenerEngine:
             classify(row, cfg)
             spike = self.spikes.get(row["symbol"]) or {}
             session_bars = [b for b in spike.get("recent", []) if b["bar_time"].date() == row["session_day"]]
+            pv = pricevol.from_bars(session_bars, cfg)          # volume-confirmed breakout state, completed candles
+            row.update(pv_state=pv and pv["state"], pv_price_pct=pv and pv["price_pct"], pv_vol_ratio=pv and pv["vol_ratio"])
             breakouts = (self.tracker.check(row, now)
                          if row["passes_filters"] or not cfg.BREAKOUT_ALERTS_REQUIRE_FILTERS else [])
-            for alert in breakouts + self.tracker.check_rvol(row, now, session_bars, self._rvol_not_before()):
+            for alert in breakouts:                              # judged on the minute it happens in
+                alert["volume_state"] = self._live_pv(row, now, session_bars)
+            for alert in breakouts + self.tracker.check_rvol(row, now, session_bars, not_before):
                 a = self.alert_rules.from_tracker(alert, row)
                 if a is not None:
                     self.alerts.emit(a, now)
             row["breakouts"] = self.tracker.fired_for(row["symbol"])
+            if watching:                                         # Breakout watch: before the break
+                sym = row["symbol"]
+                for sig in self.watch.update(row, now, lambda sym=sym: self._watch_bars(sym), not_before):
+                    a = self.alert_rules.watch_alert(sig, row, now)
+                    if a is not None:
+                        self.alerts.emit(a, now)
+        if watching:
+            self.watch.expire(now)
 
         events = self._evaluate_strategies(rows, now)
         self._rule_alerts(rows, events, now)
@@ -1298,6 +1336,7 @@ class ScreenerEngine:
                 "session_day": self.session_day,
                 "token": self._token_status(),
                 "news": self._news_status(),
+                "watch": self.watch.brief(),
                 "ready": self.ready,
                 "last_ltp_update": self.last_ltp_update.strftime("%H:%M:%S") if self.last_ltp_update else None,
                 "last_candle_update": self.last_candle_update.strftime("%H:%M:%S") if self.last_candle_update else None,
@@ -1340,6 +1379,9 @@ class ScreenerEngine:
                     "daily_ema_cross_days": c.DAILY_EMA_CROSS_LOOKBACK_DAYS, "daily_ema_vote": bool(c.DAILY_EMA_STACK_VOTE),
                     "rvol_min_value_lakh": c.RVOL_ALERT_MIN_BAR_VALUE / 1e5, "stale_seconds": c.STALE_FEED_SECONDS,
                     "breakouts_need_filters": c.BREAKOUT_ALERTS_REQUIRE_FILTERS,
+                    "pv_bars": getattr(c, "PV_BARS", 3), "pv_price_pct": getattr(c, "PV_PRICE_MIN_PCT", 0.2),
+                    "pv_volume_up": getattr(c, "PV_VOLUME_UP", 1.5), "pv_volume_down": getattr(c, "PV_VOLUME_DOWN", 0.8),
+                    "pv_high": bool(c.ALERT_RULES.get("breakout", {}).get("volume_confirmed_high", True)),
                     "rsi_period": c.RSI_PERIOD, "macd_context": c.MACD_CONTEXT_INTERVAL_MIN, "adx_strong": c.ADX_STRONG_MIN,
                     "vwap_slope_minutes": c.VWAP_SLOPE_MINUTES, "vwap_buffer_pct": c.VWAP_CROSS_BUFFER_PCT,
                     "vwap_confirm_seconds": c.VWAP_CONFIRM_SECONDS, "rvol_min_sessions": c.RVOL_MIN_SESSIONS,
@@ -1489,6 +1531,7 @@ class ScreenerEngine:
             row = next((r for r in self.rows if r["symbol"] == sym), {})
             now = self.client.now()
             alerts = [a for a in self.alerts.latest(self.cfg.ALERT_MEMORY) if a.get("symbol") == sym][:40]
+            watch = self.watch.for_symbol(sym, now)
             nifty = dict(self.nifty_ret or {})
             state = self.data_state(now)
         ind_keys = ("macd", "macd_signal", "macd_hist", "macd_state", "macd15_state", "rsi", "rsi_slope", "adx",
@@ -1507,12 +1550,15 @@ class ScreenerEngine:
             "rvol": {"day": row.get("rvol"), "day_detail": row.get("rvol_detail"), "candle": row.get("candle_rvol"),
                      "candle_detail": row.get("candle_rvol_detail"), "bar": row.get("bar_rvol"),
                      "bar_time": row.get("bar_time"), "bar_volume": row.get("bar_volume"),
-                     "bar_avg_volume": row.get("bar_avg_volume")},
+                     "bar_avg_volume": row.get("bar_avg_volume"), "pv_state": row.get("pv_state"),
+                     "pv_label": pricevol.label(row.get("pv_state")), "pv_price_pct": row.get("pv_price_pct"),
+                     "pv_vol_ratio": row.get("pv_vol_ratio"), "pv_bars": getattr(self.cfg, "PV_BARS", 3)},
             "levels": {k: row.get(k) for k in ("or_high", "or_low", "or_complete", "pdh", "pdl", "pdc", "w52_high",
                                                "w52_low", "pivot", "cpr_bc", "cpr_tc", "r1", "s1", "r2", "s2")},
             "indicators": {k: row.get(k) for k in ind_keys},
             "breakout_level": row.get("breakout_level"),
             "alerts": alerts,
+            "watch": watch,
             "quality": {"data_state": state, "last_bar": row.get("last_bar"),
                         "last_completed_bar": row.get("last_completed_bar"), "completed_bars": row.get("completed_bars"),
                         "daily_bars": row.get("daily_bars"), "rvol_sessions": (row.get("rvol_detail") or {}).get("sessions"),
@@ -1520,6 +1566,43 @@ class ScreenerEngine:
                         "unavailable": missing, "last_ltp_update": self.last_ltp_update.strftime("%H:%M:%S")
                         if self.last_ltp_update else None},
         })
+
+    def watch_view(self, day: str | None = None, limit: int = 500) -> dict:
+        """The Breakout watch tab: a day's signals with what followed, and the hit rate today / 7 days / all."""
+        cfg = self.cfg
+        now = self.client.now()
+        today = str(self.watch.session_day or self.session_day or now.date())
+        day = day or today
+        settings = {k.lower(): getattr(cfg, k, None) for k in (
+            "WATCH_MAX_DIST_PCT", "WATCH_TOUCH_PCT", "WATCH_MIN_TESTS", "WATCH_SQUEEZE_BARS", "WATCH_SQUEEZE_RATIO",
+            "WATCH_PRESS_DIST_PCT", "WATCH_PRESS_BARS", "WATCH_PRESS_VOLUME", "WATCH_OUTCOME_MINUTES",
+            "WATCH_COOLDOWN_MIN", "WATCH_UNTIL", "BREAKOUT_BUFFER_PCT")}
+        out = {"available": True, "enabled": self.watch.enabled, "now": now.strftime("%Y-%m-%d %H:%M:%S"),
+               "day": day, "today": today, "settings": settings,
+               "candles": "live feed" if hasattr(self, "feed") else
+                          ("1-min candles at each candle refresh" if cfg.RVOL_SPIKE_ENABLED and cfg.RVOL_SPIKE_INTERVAL_MIN == 1
+                           else None)}
+        if out["candles"] is None:
+            out["note"] = "Breakout watch needs 1-min candles: switch on RVOL_SPIKE_ENABLED with RVOL_SPIKE_INTERVAL_MIN = 1."
+        mine = self.watch.today(now)
+        earlier: list[dict] = []
+        if self.store is not None:
+            try:
+                week = str((pd.Timestamp(today) - pd.Timedelta(days=7)).date())
+                earlier = self.store.watch_signals(before=today, limit=20000)
+                listed = mine if day == today else list(reversed(self.store.watch_signals(day=day)))
+            except Exception as exc:
+                self._error(f"Could not read Breakout watch history: {exc}")
+                listed, week = mine, today
+        else:
+            listed, week = (mine if day == today else []), today
+        out["total"] = len(listed)
+        out["signals"] = listed[:max(1, int(limit))]             # newest first; the stats count every signal
+        out["stats"] = {"today": watch_summary(mine, cfg),
+                        "week": watch_summary(mine + [s for s in earlier if s["session_day"] >= week], cfg),
+                        "all": watch_summary(mine + earlier, cfg)}
+        out["days"] = len({s["session_day"] for s in earlier} | ({today} if mine else set()))
+        return _clean(out)
 
     def search(self, query: str, limit: int = 25) -> list[dict]:
         """Rows whose symbol contains `query` (prefix matches first)."""

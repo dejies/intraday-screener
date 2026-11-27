@@ -29,7 +29,7 @@ For development, `pip install -e ".[test]"` also installs the commands `screener
 | 08:30 (all-NSE mode) | Daily candles for every stock | `history.py backfill --universe nse --daily-only` |
 | 08:45–09:10 | Check, then start; plug the Mac in and keep the lid open | `scripts/start.sh` |
 | 09:15–15:30 | Watch; the 🔔 badge and CRITICAL toasts flag problems | dashboard |
-| After 15:30 | Review alerts; back up; stop with Ctrl+C | `history.py alerts --days 1`, `scripts/backup.sh` |
+| After 15:30 | Review alerts and the **Breakout watch** tab (today's signals, what followed, the hit rate); back up; stop with Ctrl+C | `history.py alerts --days 1`, `scripts/backup.sh` |
 | Weekly | New listings and sectors | `universe.py build` |
 | December | Add next year's NSE holidays | edit `nse_holidays.csv` (§5) |
 
@@ -159,6 +159,8 @@ that the feed badge goes back to *live* within a few seconds (this is the first 
 | "Dhan rejected the credentials" / "token expired" | the app was stopped for over a day, or renewal failed | new token at web.dhan.co, put it in `.env` (picked up within a minute) |
 | World news tab: a source shows ✗ | that site refused or changed its feed (the others still work) | wait for the next update; if it stays ✗, switch it off on the Settings page (*World news*) |
 | World news tab is empty | first start without internet, or `NEWS_ENABLED` off | check the internet connection, then **Refresh now** |
+| Breakout watch tab: no signals | before about 09:30 (it needs 15 completed 1-min candles of today, or 15 minutes after the feed connected), no stock meets every condition, or `WATCH_ENABLED` off | normal on a quiet morning; thresholds are on the Settings page (*Breakout watch*) |
+| Breakout watch: too many LOW *coiling* alerts | many stocks sit just under their day high | raise `WATCH_MIN_TESTS` or lower `WATCH_SQUEEZE_RATIO`, or switch the alert type off under *Alerts* (the tab still records and measures every signal) |
 | A `history.py` / `backtest.py` run fails with an auth error | the app renewed the token while it ran | run it again (it reads `.env` at start) |
 | Nothing updates, "NSE holiday" in the header | exchange holiday | nothing; the tables show the last session |
 | DATA STALE during market hours | network, Dhan outage, or (live feed) a holiday missing from the calendar | check the network; `manage.py check`; add the holiday |

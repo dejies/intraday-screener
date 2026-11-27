@@ -1115,6 +1115,76 @@ fires when price moves from "not beyond" to "beyond" the trigger
 
 **Confirmed** = at least **4 of 5** agree.
 
+### 20.1 Breakout watch: before the break
+
+Code: `screener/watch.py`. A breakout alert (above) fires *after* a level breaks. Breakout watch looks
+for the set-up *before* it, long side only, and **records what happened next**, so you can see how often a
+breakout really followed. It reads today's 1-min candles (the completed ones) and the live price.
+
+**Levels** (resistance above the price): OR High (from the 1-min candles when the full scan hasn't computed
+it), PDH, 52W High and today's high. A level the price is already through (by the 0.05 % buffer) is skipped.
+The **nearest** level within 1.5 % is used; levels within 0.3 % of it form one **zone**, measured from its
+lowest level and named after all of them (e.g. *PDH 46.30 / OR High + Day high 46.35*).
+
+```
+distance %   = (level / price − 1) × 100
+test         = a 1-min candle with  high ≥ level × (1 − 0.15 %)  and  low ≤ level   (it came up to the level from below)
+               touching candles one after another are one test; two tests need 2 candles away from the level between them
+candle size  = (high − low) / close × 100
+squeeze      = mean size of the last 5 completed candles / mean size of the 20 candles before them
+volume ratio = mean volume of the last 3 completed candles / mean volume of the 20 candles before them
+liquidity    = mean ₹ traded per candle (volume × close) over the 20 candles before the last 5
+```
+
+| Signal | Conditions (all) | Alert |
+|---|---|---|
+| **Coiling** | distance ≤ 1.5 % · tests ≥ 2 · squeeze ≤ 0.5 | `watch_coiling`, LOW |
+| **Pressing** | distance ≤ 0.3 % · volume ratio ≥ 1.2 · price > VWAP | `watch_pressing`, MEDIUM |
+
+Both also need: the stock passes the hard filters (§18.3, including the price band), at least 10 candles
+before the recent ones (so nothing before about 09:30, or within 15 minutes of the feed connecting), an
+average of at least ₹5 lakh traded per candle, and the time between 09:15 and 15:10. Each stock gets at
+most one signal of a kind per level (a level within 0.5 % of one already signalled counts as the same, until
+that one broke out) and none within 15 minutes of the last of that kind.
+
+**Measuring.** Every signal is saved in the `watch_signals` table. For the next 10 minutes
+(`WATCH_OUTCOME_MINUTES`) the watcher tracks the live price and the completed candles:
+
+| Field | Meaning |
+|---|---|
+| `broke_at` | first time price went above level × (1 + 0.05 %), the breakout alert's own rule (the live price; a spike between two price updates counts from its candle's start) |
+| `minutes_to_break` | broke_at − signal time |
+| `max_gain_pct`, `max_drop_pct` | highest / lowest price in the 10 minutes, from the signal price |
+| `outcome` | `broke`, `no_break`, or `no_data` (the stock stopped updating; left out of the hit rate) |
+
+```
+hit rate      = signals that broke within 10 min / measured signals (broke + no_break)
+fast hit rate = signals that broke within 5 min / measured signals
+```
+
+The dashboard's **Breakout watch** tab shows both for today, the last 7 days and since the start. A hit rate
+needs a comparison: in the simulated demo (a random walk) roughly 4 in 10 "coiling" stocks touched the level
+within 10 minutes, so a real hit rate near that says the signal adds nothing. Also compare the average worst
+move with the average best one.
+
+**Worked example (DWARKESH, 27-Nov-2026).** PDH 46.30, opening range 09:15–09:30 high 46.35.
+
+| Time | High | Low | Close | Size % | Note |
+|---|---|---|---|---|---|
+| 09:24 | 46.35 | 45.70 | 46.12 | 1.41 | test 1 (high ≥ 46.30 × 0.9985 = 46.23, low ≤ 46.30) |
+| 09:25–09:27 | ≤ 46.18 | | | 0.22–0.50 | away from the level |
+| 09:28 | 46.34 | 45.97 | 46.00 | 0.80 | test 2 |
+| 09:29–09:32 | ≤ 46.00 | | 45.89 at 09:32 | 0.17–0.39 | shrinking |
+
+At **09:33:05** the last 5 completed candles (09:28–09:32) average 0.38 % against 0.78 % for the 13 candles
+before them: squeeze 0.49 ≤ 0.5. (The replay's 09:15–09:23 candles are reconstructed at the same scale, so this
+ratio is approximate; 09:24 onwards are the real candles.) Price 45.89 is 0.89 % below PDH, tested twice:
+**DWARKESH coiling 0.89% below PDH 46.30 / OR High + Day high 46.35: tested 2 times (09:24, 09:28)**.
+At 09:37:12 price reached 46.68 > 46.30 × 1.0005 = 46.32, so the signal is a hit after 4.1 minutes, with a
+best move of +5.7 % (48.50 at 09:41) and a worst of −0.4 % (45.72 at 09:34) inside the 10 minutes.
+Pressing never fired: price was 0.9–1.3 % below the level until the minute it broke, and the volume of
+09:34–09:36 was a tenth of normal. (`tests/test_watch.py` replays these candles.)
+
 ---
 
 ## 21. Volume-spike (Bar RVOL) alerts
@@ -1164,6 +1234,8 @@ server from a state transition**, never by a browser refresh, and saved in the `
 | `vwap_cross` | a confirmed VWAP reclaim (up) or loss (down), §9.4 | MEDIUM | watch |
 | `breakout` | the level crosses of §20; an opening-range breakout is labelled as such | HIGH when confirmed, MEDIUM otherwise | filter-passing stocks |
 | `rvol` | a ⚡ Bar RVOL spike, §21 | MEDIUM | every NSE stock |
+| `watch_coiling` | Breakout watch: coiling under a tested level, §20.1 | LOW | filter-passing stocks |
+| `watch_pressing` | Breakout watch: pressing a level on rising volume above VWAP, §20.1 | MEDIUM | filter-passing stocks |
 | `feed` | prices stale, feed disconnected or stopped for 10 s (*CRITICAL*); back to normal (*LOW*) | CRITICAL / LOW | system |
 | `data_error` | a candle / quote / calculation failure (repeats within 10 min fold into one alert with a count and example symbols) | MEDIUM; CRITICAL when the app's own loop fails | system |
 | `auth` | Dhan rejects the credentials | CRITICAL | system |
@@ -1464,6 +1536,14 @@ All in `config.py`:
 | `HISTORY_RETENTION_DAYS` | 60 | prune snapshots, evaluations and candidate history older than this |
 | `ALERT_RULES` | see §22.1 | per alert type: `enabled`, severity, thresholds, re-arm levels, scope, cooldown |
 | `ALERT_WATCH_MIN_SCORE` | 50 | setup score that puts a stock in the "watch" scope |
+| `WATCH_ENABLED` | True | Breakout watch on (§20.1) |
+| `WATCH_MAX_DIST_PCT`, `WATCH_TOUCH_PCT`, `WATCH_MIN_TESTS` | 1.5, 0.15, 2 | coiling: how far below the level, what counts as a test, tests needed |
+| `WATCH_SQUEEZE_BARS`, `WATCH_SQUEEZE_RATIO` | 5, 0.5 | coiling: recent candles and how small they must be vs the 20 before |
+| `WATCH_PRESS_DIST_PCT`, `WATCH_PRESS_BARS`, `WATCH_PRESS_VOLUME` | 0.3, 3, 1.2 | pressing: distance, recent candles, volume vs the 20 before |
+| `WATCH_MIN_AVG_BAR_VALUE` | 5,00,000 | minimum average ₹ per 1-min candle |
+| `WATCH_COOLDOWN_MIN` | 15 | one signal of a kind per stock in this window |
+| `WATCH_OUTCOME_MINUTES` | 10 | a hit = the level breaks within this |
+| `WATCH_UNTIL` | 15:10 | no new signals after this |
 | `ALERT_MEMORY`, `ALERT_SNAPSHOT_MAX` | 1000, 200 | alerts kept in memory / sent to a newly opened page |
 | `BACKTEST` | see §23 | capital per trade, last entry, exit time, stop / target / lost-eligibility exits, trades per day, in-sample share, costs |
 | `PUSH_INTERVAL_SECONDS` | 1.0 | how often the dashboard WebSocket sends changes |

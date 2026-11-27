@@ -25,7 +25,7 @@ GATES = {
     "sector_leaders": ["SECTOR_RS", "STOCK_VS_SECTOR", "SECTOR_TOP_PCT", "CUM_RVOL", "ABOVE_VWAP", "EMA9_GT_EMA20"],
 }
 GROUPS = ["Universe and session", "Strategies", "Setup score", "Hard filters and votes", "Indicators and timeframes",
-          "Candidates", "Alerts", "Refresh intervals", "Access token", "Dashboard", "World news"]
+          "Candidates", "Alerts", "Refresh intervals", "Access token", "Dashboard", "World news", "Breakout watch"]
 
 
 def F(key, label, type_, group, **kw) -> dict:
@@ -131,13 +131,21 @@ def _fields() -> list[dict]:
         F("RVOL_ALERT_THRESHOLD", "⚡ Bar RVOL alert above (×)", "float", GROUPS[6], min=1, max=50),
         F("RVOL_ALERT_COOLDOWN_MIN", "⚡ cooldown per stock (min)", "int", GROUPS[6], min=0, max=375),
         F("RVOL_ALERT_MIN_BAR_VALUE", "⚡ minimum ₹ traded in the candle", "float", GROUPS[6], min=0, max=1e10),
+        F("PV_BARS", "Volume-confirmed breakout: 1-min candles looked at", "int", GROUPS[6], min=1, max=15,
+          help="price up + volume up = stronger confirmation; price up + volume down = caution"),
+        F("PV_PRICE_MIN_PCT", "Volume-confirmed breakout: price move that counts (%)", "float", GROUPS[6], min=0, max=10),
+        F("PV_VOLUME_UP", "Volume-confirmed breakout: volume rising at (× the 20 candles before)", "float", GROUPS[6],
+          min=1, max=50),
+        F("PV_VOLUME_DOWN", "Volume-confirmed breakout: volume falling at (×)", "float", GROUPS[6], min=0, max=1),
+        F("ALERT_RULES.breakout.volume_confirmed_high", "Breakout alerts are HIGH when volume confirms them", "bool", GROUPS[6]),
     ]
     for kind in ("strategy_qualified", "strategy_lost", "strategy_removed", "strategy_requalified", "score_cross",
                  "rvol_cross", "rs_positive", "sector_top", "sector_rs_positive", "macd_bullish", "vwap_cross",
-                 "breakout", "rvol", "feed", "data_error", "auth", "token", "refresh", "sleep"):
+                 "breakout", "rvol", "watch_coiling", "watch_pressing", "feed", "data_error", "auth", "token", "refresh",
+                 "sleep"):
         f.append(F(f"ALERT_RULES.{kind}.enabled", f"Alert type on: {kind.replace('_', ' ')}", "bool", GROUPS[6]))
     for kind in ("strategy_lost", "strategy_removed", "strategy_requalified", "rvol_cross", "rs_positive", "sector_top",
-                 "sector_rs_positive", "macd_bullish", "vwap_cross", "rvol", "data_error"):
+                 "sector_rs_positive", "macd_bullish", "vwap_cross", "rvol", "watch_coiling", "watch_pressing", "data_error"):
         f.append(F(f"ALERT_RULES.{kind}.severity", f"Severity: {kind.replace('_', ' ')}", "choice", GROUPS[6], options=SEVERITIES))
     for k in STRATEGY_KEYS:
         f.append(F(f"ALERT_RULES.strategy_qualified.severity.{k}", f"Severity: {k.replace('_', ' ')} qualified",
@@ -197,6 +205,25 @@ def _fields() -> list[dict]:
           help="comma-separated HH:MM; the tab also has Refresh now"),
         F("NEWS_SOURCES", "News sources", "multi", GROUPS[10], options=[f["name"] for f in _news_feeds()]),
         F("NEWS_KEEP_DAYS", "Keep news for (days)", "int", GROUPS[10], min=1, max=30),
+
+        F("WATCH_ENABLED", "Look for stocks coiling under / pressing a level", "bool", GROUPS[11],
+          help="a heads-up before a possible breakout, measured: the Breakout watch tab shows how often one followed"),
+        F("WATCH_MAX_DIST_PCT", "Coiling: price at most this far below the level (%)", "float", GROUPS[11], min=0.1, max=5),
+        F("WATCH_TOUCH_PCT", "A test of the level: a candle's high within (%)", "float", GROUPS[11], min=0, max=1),
+        F("WATCH_MIN_TESTS", "Coiling: tests of the level needed", "int", GROUPS[11], min=1, max=10),
+        F("WATCH_SQUEEZE_BARS", "Coiling: recent 1-min candles looked at", "int", GROUPS[11], min=2, max=30),
+        F("WATCH_SQUEEZE_RATIO", "Coiling: their size at most (× the 20 candles before)", "float", GROUPS[11],
+          min=0.05, max=1),
+        F("WATCH_PRESS_DIST_PCT", "Pressing: price at most this far below the level (%)", "float", GROUPS[11],
+          min=0, max=2),
+        F("WATCH_PRESS_BARS", "Pressing: recent 1-min candles looked at", "int", GROUPS[11], min=1, max=15),
+        F("WATCH_PRESS_VOLUME", "Pressing: their volume at least (× the 20 candles before)", "float", GROUPS[11],
+          min=0.5, max=20),
+        F("WATCH_MIN_AVG_BAR_VALUE", "Minimum ₹ traded per 1-min candle (average)", "float", GROUPS[11], min=0, max=1e10,
+          help="skips illiquid stocks, whose quiet candles look like a squeeze"),
+        F("WATCH_COOLDOWN_MIN", "One signal of a kind per stock per (min)", "int", GROUPS[11], min=0, max=375),
+        F("WATCH_OUTCOME_MINUTES", "A hit: the level breaks within (min)", "int", GROUPS[11], min=2, max=60,
+          help="by the breakout buffer, the breakout alert's own rule; also reported within 5 min"),
     ]
     for x in f:
         x.setdefault("restart", False)
@@ -333,6 +360,8 @@ def cross_checks(cfg) -> dict[str, str]:
     lo, hi = getattr(cfg, "MIN_PRICE", 0) or 0, getattr(cfg, "MAX_PRICE", 0) or 0
     if lo and hi and lo >= hi:
         errs["MAX_PRICE"] = "must be above the min price"
+    if getattr(cfg, "PV_VOLUME_DOWN", 0.8) >= getattr(cfg, "PV_VOLUME_UP", 1.5):
+        errs["PV_VOLUME_DOWN"] = "must be below the 'volume rising' level"
     lo, hi = getattr(cfg, "TABLE_CHG_PCT_MIN", None), getattr(cfg, "TABLE_CHG_PCT_MAX", None)
     if lo is not None and hi is not None and lo > hi:
         errs["TABLE_CHG_PCT_MAX"] = "must be at least the 'from' value"
@@ -390,7 +419,8 @@ def apply(cfg, changes: dict, defaults: dict, reset: list[str] | None = None) ->
         return {"applied": [], "restart": [], "errors": errors}
     trial = type("Trial", (), {})()
     for k in ("MACD_FAST", "MACD_SLOW", "RVOL_MIN_SESSIONS", "RVOL_LOOKBACK_SESSIONS", "SCORE_BOUNDS",
-              "SCORE_WEIGHTS", "ALERT_RULES", "MIN_PRICE", "MAX_PRICE", "TABLE_CHG_PCT_MIN", "TABLE_CHG_PCT_MAX"):
+              "SCORE_WEIGHTS", "ALERT_RULES", "MIN_PRICE", "MAX_PRICE", "TABLE_CHG_PCT_MIN", "TABLE_CHG_PCT_MAX",
+              "PV_VOLUME_UP", "PV_VOLUME_DOWN"):
         setattr(trial, k, copy.deepcopy(getattr(cfg, k)))
     for key, v in plan.items():
         root, _ = _split(key)

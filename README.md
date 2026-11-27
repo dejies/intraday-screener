@@ -585,6 +585,52 @@ crosses the level by more than 0.05%. Levels: **OR High/Low** (only after 09:30)
   Tick *Breakouts: only confirmed ones* in *Alert settings* to cut the noise.
 - When the tab is in the background you also get a desktop notification and a count in the tab title.
 
+### Volume-confirmed breakout
+
+Every stock also gets a **price · volume** state from its last 3 completed 1-min candles
+(`screener/pricevol.py`), shown as a badge next to Bar RVOL in the tables and in the stock detail:
+
+| Badge | Price | Volume | Meaning |
+|---|---|---|---|
+| ↑↑ green | rises | rises | stronger breakout confirmation |
+| ↑↓ amber | rises | falls | caution: the rise isn't backed by volume |
+| ↓↑ red | falls | rises | stronger selling pressure |
+| ↓↓ grey | falls | falls | weak selling pressure |
+
+"Rises / falls" means a price move of at least 0.2% over those candles, and their average volume at least
+1.5× (or at most 0.8×) the 20 candles before (`PV_BARS`, `PV_PRICE_MIN_PCT`, `PV_VOLUME_UP`, `PV_VOLUME_DOWN`).
+A **breakout alert** judges it on the minute the breakout happens in, at that minute's volume pace so far,
+and says so in its text, e.g. *Volume: price ↑ volume ↑ (+1.9% on 12× volume, this minute so far):
+stronger breakout confirmation*. A breakout (or breakdown) backed by volume is **HIGH**
+(`ALERT_RULES.breakout.volume_confirmed_high`); one on falling volume says *caution*.
+
+### Breakout watch (before the break)
+
+A breakout alert fires once the level has broken. **Breakout watch** (`screener/watch.py`) gives a heads-up
+*before*, from the 1-min candles, and keeps score of how often a breakout really followed:
+
+- **Coiling** (LOW alert): price at most 1.5% below a level (opening-range high, previous day high, 52-week
+  high or today's high) that has been **tested at least twice**, while the last 5 candles have **shrunk to half**
+  the size of the 20 before them. Sellers are drying up under the level.
+- **Pressing** (MEDIUM alert): price at most 0.3% below the level, the last 3 candles traded at least 1.2×
+  the volume of the 20 before them, and price is above VWAP.
+
+Only stocks that pass the hard filters are watched, one signal of a kind per stock per level (and none within
+15 minutes), none after 15:10. Every signal is saved (`watch_signals` table) and measured for 10 minutes: did
+price clear the level by the breakout buffer, how fast, and the best and worst move in that time.
+
+The **Breakout watch** tab lists the day's signals with what followed, and the **hit rate** today, over the
+last 7 days and since the start (pick a date to see an older day). The stock detail panel shows a stock's
+signals too. For DWARKESH on 27 Nov it would have said at 09:33 *coiling 0.89% below PDH 46.30: tested 2 times
+(09:24, 09:28)*, four minutes before the 09:37 breakout.
+
+Read the hit rate after 2–3 weeks, not 2–3 days, and compare it with chance: on the simulated demo (a random
+walk) about 4 in 10 "coiling" stocks touch their level within 10 minutes anyway. A heads-up is a reason to
+look at the chart, not to buy; many coils break down instead. Thresholds: Settings → Breakout watch; the
+two alert types can be switched off or re-graded under Alerts. In watchlist mode it needs the 1-min candles
+(`RVOL_SPIKE_ENABLED` with `RVOL_SPIKE_INTERVAL_MIN = 1`, the default). Details and the formulas:
+`technical_indicators_calculations.md` §20.1.
+
 ## Scanning every NSE stock (WebSocket feed)
 
 `app.py --universe nse` takes every **NSE equity share** from Dhan's instrument list and subscribes
@@ -871,6 +917,7 @@ screener/strategies.py  the three strategies: gates, reason codes, missing-data 
 screener/scoring.py     the 100-point setup score (bounded components, effective denominator)
 screener/candidates.py  candidate lifecycle (new / active / weakening / removed) and its events
 screener/alerts.py      alert centre: transition rules, severity, dedup / cooldown, feed monitor, persistence
+screener/watch.py       Breakout watch: coiling / pressing a level before the break, and the measured hit rate
 screener/dhan_client.py read-only DhanHQ v2 client (instruments, candles, LTP, company info)
 screener/universe.py    stock list + sector assignment (downloads, joins, Dhan→NSE sector crosswalk)
 screener/relative_strength.py  horizon returns, sector RS vs Nifty, stock vs sector, breadth

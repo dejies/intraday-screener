@@ -22,6 +22,8 @@ import time as _time
 from collections import deque
 from datetime import date, datetime, timedelta
 
+from . import pricevol
+
 log = logging.getLogger("screener.alerts")
 
 SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW")
@@ -42,6 +44,8 @@ KINDS = {
     "vwap_cross": ("VWAP cross", "setup"),
     "breakout": ("Breakout", "setup"),
     "rvol": ("Volume spike", "setup"),
+    "watch_coiling": ("Breakout watch: coiling", "setup"),
+    "watch_pressing": ("Breakout watch: pressing", "setup"),
     "feed": ("Feed", "system"),
     "data_error": ("Data error", "system"),
     "auth": ("Credentials", "system"),
@@ -377,7 +381,15 @@ class AlertRules:
         if not rule.get("enabled", True):
             return None
         if kind == "breakout":
-            alert["severity"] = rule.get("severity_confirmed", "HIGH") if alert.get("confirmed") else rule.get("severity", "MEDIUM")
+            pv = alert.get("volume_state")
+            vol_ok = rule.get("volume_confirmed_high", True) and pricevol.confirms(pv, alert.get("direction", "up"))
+            alert["volume_confirmed"] = pricevol.confirms(pv, alert.get("direction", "up"))
+            alert["volume_caution"] = pricevol.warns(pv, alert.get("direction", "up"))
+            strong = alert.get("confirmed") or vol_ok
+            alert["severity"] = rule.get("severity_confirmed", "HIGH") if strong else rule.get("severity", "MEDIUM")
+            if pv:
+                alert["text"] = f"{alert['text']}. {pricevol.text(pv)}"
+                alert["pv_state"] = pv.get("state")
             word = "breakout" if alert.get("direction") == "up" else "breakdown"
             alert["label"] = f"Opening-range {word}" if alert["level_name"].startswith("OR") else word.capitalize()
             alert["alert_key"] = f"{self.session_day}|breakout|{row['symbol']}|{alert['level_name']}"
@@ -389,6 +401,16 @@ class AlertRules:
         alert["values"] = alert_values(row)
         alert["text"] = f"{alert['text']}. {values_text(alert['values'])}".rstrip(". ") + "."
         return alert
+
+    def watch_alert(self, sig: dict, row: dict, now: datetime) -> dict | None:
+        """A Breakout watch signal (screener/watch.py) as an alert: coiling LOW, pressing MEDIUM by default."""
+        kind = f"watch_{sig['kind']}"
+        if kind not in KINDS or not self._on(kind):
+            return None
+        sev = self.rules.get(kind, {}).get("severity") or ("LOW" if sig["kind"] == "coiling" else "MEDIUM")
+        return self._alert(kind, sev, row, sig["text"], now, level_name=sig["level_name"], level=sig["level"],
+                           direction="up", watch_id=sig["id"],
+                           alert_key=f"{self.session_day}|{kind}|{row['symbol']}|{sig['id']}")
 
     # ---------------------------------------------------- candidate events
     def strategy_alerts(self, events: list[dict], rows_by_sym: dict, meta: dict, now: datetime) -> list[dict]:

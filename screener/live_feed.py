@@ -177,6 +177,16 @@ class MinuteBarBuilder:
         ts, o, _h, _l, c, v = zip(*rows)
         return np.array(ts, dtype="datetime64[ns]"), np.array(o, float), np.array(c, float), np.array(v, float)
 
+    def arrays_full(self, key: tuple, last: int | None = None):
+        """(bar start times, open, high, low, close, volume) as arrays, the forming bar last - for Breakout watch."""
+        rows = self._rows(key, last)
+        if not rows:
+            e = np.array([], dtype="datetime64[ns]")
+            return (e,) + tuple(np.array([]) for _ in range(5))
+        ts, o, h, lo, c, v = zip(*rows)
+        return (np.array(ts, dtype="datetime64[ns]"), np.array(o, float), np.array(h, float), np.array(lo, float),
+                np.array(c, float), np.array(v, float))
+
 
 # --------------------------------------------------------------------------- #
 # Dhan WebSocket client
@@ -365,6 +375,9 @@ class DhanLiveFeed:
     def bar_arrays(self, key: tuple, last: int | None = None):
         return self.builder.arrays(key, last)
 
+    def bar_arrays_full(self, key: tuple, last: int | None = None):
+        return self.builder.arrays_full(key, last)
+
     def status(self) -> dict:
         mono = _time.monotonic()
         self._rate.append((mono, self.packets))
@@ -415,6 +428,9 @@ class DemoFeed:
             self._arr[(seg, str(sid))]["bar_np"] = (
                 bars.index.to_numpy(), bars["open"].to_numpy(float), bars["close"].to_numpy(float),
                 bars["volume"].to_numpy(float))
+            self._arr[(seg, str(sid))]["bar_np_full"] = (
+                bars.index.to_numpy(), bars["open"].to_numpy(float), bars["high"].to_numpy(float),
+                bars["low"].to_numpy(float), bars["close"].to_numpy(float), bars["volume"].to_numpy(float))
         self.connected = True
         self.connected_since = self.client.now().replace(second=0, microsecond=0)
 
@@ -459,6 +475,19 @@ class DemoFeed:
         if last:
             lo = max(lo, hi - last)
         return ts[lo:hi], o[lo:hi], c[lo:hi], v[lo:hi]
+
+    def bar_arrays_full(self, key: tuple, last: int | None = None):
+        a = self._arr.get(key)
+        if a is None:
+            e = np.array([], dtype="datetime64[ns]")
+            return (e,) + tuple(np.array([]) for _ in range(5))
+        cols = a["bar_np_full"]
+        ts = cols[0]
+        lo = int(np.searchsorted(ts, np.datetime64(self.connected_since), side="left"))
+        hi = int(np.searchsorted(ts, np.datetime64(self.client.now()), side="right"))
+        if last:
+            lo = max(lo, hi - last)
+        return tuple(x[lo:hi] for x in cols)
 
     def force_reconnect(self, reason: str) -> bool:
         return False                        # the simulated feed never goes silent

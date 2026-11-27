@@ -248,3 +248,33 @@ button:disabled { opacity: .5; cursor: default; }
   #newsTab .nwhen { flex-direction: row; gap: 8px; }
   #newsTab .nright { margin-left: 0; }
 }
+
+/* Volume-confirmed breakout badge (next to Bar RVOL) */
+.pv { font-size: 11px; font-weight: 700; padding: 0 4px; border-radius: 5px; margin-left: 3px; letter-spacing: -.02em; }
+.pv-up { background: var(--bull-bg); color: var(--bull); }
+.pv-down { background: var(--bear-bg); color: var(--bear); }
+.pv-warn { background: var(--warn-bg); color: var(--warn); }
+.pv-muted { background: var(--chip); color: var(--muted); }
+.warn { color: var(--warn); }
+
+/* Breakout watch tab (static/js/watch.js) */
+.wk { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 6px; letter-spacing: .03em; }
+.wk-coiling { background: var(--warn-bg); color: var(--warn); }
+.wk-pressing { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+#watchTab .wbar { display: flex; gap: 6px 12px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+#watchTab .wright { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+#watchTab .wright input { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel, transparent); color: inherit; }
+#watchTab .wstats { border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 10px; padding: 6px 10px; overflow-x: auto; margin-bottom: 8px; }
+#watchTab .wstats th, #watchTab .wstats td { text-align: left; padding: 4px 8px; white-space: nowrap; }
+#watchTab .wstats tbody th { color: var(--text); text-transform: none; letter-spacing: 0; font-size: 12px; vertical-align: top; }
+#watchTab .wstats tr.wsep > * { border-top: 1px solid var(--border); }
+#watchTab .wfilters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+#watchTab .wseg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+#watchTab .wseg button { border: 0; border-radius: 0; padding: 4px 12px; }
+#watchTab .wseg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+#watchTab .wtable { overflow-x: auto; margin-top: 6px; }
+#watchTab .wtable th, #watchTab .wtable td { text-align: left; vertical-align: top; }
+#watchTab .wdetail { white-space: normal; min-width: 220px; color: var(--muted); }
+#watchTab .wfoot { margin: 4px 0 8px; }
+#watchTab .wabout { margin-top: 10px; }
+#watchTab .wabout p { max-width: 900px; }

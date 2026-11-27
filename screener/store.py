@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 DAILY = "D"
 
 SCHEMA = """
@@ -198,6 +198,32 @@ CREATE TABLE IF NOT EXISTS news (               -- v8: the dashboard's World new
 );
 CREATE INDEX IF NOT EXISTS news_by_time ON news (published_at);
 
+CREATE TABLE IF NOT EXISTS watch_signals (      -- v9: Breakout watch signals and what followed (screener/watch.py)
+    id               INTEGER PRIMARY KEY,
+    session_day      TEXT NOT NULL,
+    ts               TEXT NOT NULL,             -- IST, when the signal fired
+    symbol           TEXT NOT NULL,
+    kind             TEXT NOT NULL,             -- coiling | pressing
+    level_name       TEXT NOT NULL,             -- the zone's lowest level: OR High | PDH | 52W High | Day high
+    zone             TEXT,                      -- every level in the zone, e.g. 'PDH 46.30 / OR High + Day high 46.35'
+    level            REAL NOT NULL,
+    price            REAL,
+    dist_pct         REAL,                      -- % below the level at the signal
+    tests            INTEGER,
+    squeeze_ratio    REAL,                      -- recent candle size / normal
+    vol_ratio        REAL,                      -- recent volume / normal
+    vwap             REAL,
+    detail           TEXT,                      -- JSON: test times, candle sizes, levels, sector, text
+    window_min       INTEGER,                   -- minutes measured
+    outcome          TEXT,                      -- NULL while measuring; broke | no_break | no_data
+    broke_at         TEXT,
+    minutes_to_break REAL,
+    max_gain_pct     REAL,                      -- best move from the signal price within the window
+    max_drop_pct     REAL,                      -- worst move
+    resolved_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS watch_by_day ON watch_signals (session_day);
+
 CREATE TABLE IF NOT EXISTS backtest_trades (
     run_id TEXT NOT NULL, variant TEXT NOT NULL, strategy TEXT NOT NULL, symbol TEXT NOT NULL, sector TEXT,
     session_day TEXT NOT NULL, sample TEXT, signal_time TEXT, entry_time TEXT NOT NULL, entry REAL, exit_time TEXT,
@@ -339,7 +365,8 @@ class MarketStore:
 
     # ----------------------------------------------------------------- alerts
     EXTRA_FIELDS = ("bar_rvol", "bar_time", "bar_volume", "bar_avg_volume", "bar_change_pct", "series",
-                    "values", "reasons", "examples", "label", "strategy_name", "last_seen", "group")
+                    "values", "reasons", "examples", "label", "strategy_name", "last_seen", "group",
+                    "volume_state", "volume_confirmed", "volume_caution", "pv_state", "watch_id")
 
     def insert_alert(self, alert: dict, session_day, source: str | None = None) -> None:
         """Insert once: a repeated id or alert_key is ignored (deduplication)."""
@@ -620,6 +647,63 @@ class MarketStore:
         with self._lock:
             row = self.conn.execute("SELECT MAX(fetched_at) FROM news").fetchone()
         return row[0] if row else None
+
+    # --------------------------------------------------------- breakout watch
+    WATCH_DETAIL = ("test_times", "recent_range", "base_range", "levels", "sector", "text", "time")
+
+    def insert_watch_signal(self, s: dict) -> None:
+        detail = {k: s.get(k) for k in self.WATCH_DETAIL if s.get(k) is not None}
+        with self._lock, self.conn:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO watch_signals (id, session_day, ts, symbol, kind, level_name, zone, level, price, "
+                "dist_pct, tests, squeeze_ratio, vol_ratio, vwap, detail, window_min, outcome, broke_at, minutes_to_break, "
+                "max_gain_pct, max_drop_pct, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (s["id"], s["session_day"], s["ts"], s["symbol"], s["kind"], s["level_name"], s.get("zone"), s["level"],
+                 s.get("price"), s.get("dist_pct"), s.get("tests"), s.get("squeeze_ratio"), s.get("vol_ratio"), s.get("vwap"),
+                 json.dumps(detail, default=str), s.get("window_min"), s.get("outcome"), s.get("broke_at"),
+                 s.get("minutes_to_break"), s.get("max_gain_pct"), s.get("max_drop_pct"), s.get("resolved_at")))
+
+    def update_watch_outcome(self, s: dict) -> None:
+        with self._lock, self.conn:
+            self.conn.execute(
+                "UPDATE watch_signals SET outcome = ?, broke_at = ?, minutes_to_break = ?, max_gain_pct = ?, "
+                "max_drop_pct = ?, resolved_at = ? WHERE id = ?",
+                (s.get("outcome"), s.get("broke_at"), s.get("minutes_to_break"), s.get("max_gain_pct"),
+                 s.get("max_drop_pct"), s.get("resolved_at"), s["id"]))
+
+    def watch_signals(self, day: str | None = None, since: str | None = None, before: str | None = None,
+                      limit: int = 5000) -> list[dict]:
+        """Breakout watch signals, oldest first (filters: one day, from a day, before a day)."""
+        where, args = [], []
+        for cond, val in (("session_day = ?", day), ("session_day >= ?", since), ("session_day < ?", before)):
+            if val:
+                where.append(cond)
+                args.append(str(val))
+        sql = "SELECT * FROM watch_signals" + (f" WHERE {' AND '.join(where)}" if where else "") + " ORDER BY id DESC LIMIT ?"
+        with self._lock:
+            rows = self.conn.execute(sql, (*args, int(limit))).fetchall()
+        out = []
+        for r in reversed(rows):
+            d = dict(r)
+            d.update(json.loads(d.pop("detail", None) or "{}"))
+            if d.get("price") is not None:                 # the watcher keeps measuring from these
+                d["max_price"] = d["price"] * (1 + (d.get("max_gain_pct") or 0) / 100)
+                d["min_price"] = d["price"] * (1 + (d.get("max_drop_pct") or 0) / 100)
+            out.append(d)
+        return out
+
+    def watch_counts(self, before: str | None = None) -> dict[str, dict]:
+        """Measured and broken-out signals per kind (for the hit rate in the alert text)."""
+        sql = ("SELECT kind, COUNT(*) AS measured, SUM(outcome = 'broke') AS broke FROM watch_signals "
+               "WHERE outcome IN ('broke', 'no_break')" + (" AND session_day < ?" if before else "") + " GROUP BY kind")
+        with self._lock:
+            rows = self.conn.execute(sql, (str(before),) if before else ()).fetchall()
+        return {r["kind"]: {"measured": int(r["measured"] or 0), "broke": int(r["broke"] or 0)} for r in rows}
+
+    def max_watch_id(self) -> int:
+        with self._lock:
+            row = self.conn.execute("SELECT MAX(id) FROM watch_signals").fetchone()
+        return int(row[0] or 0)
 
     # ------------------------------------------------------------------ stats
     def coverage_summary(self, symbol: str | None = None, rows: bool = False) -> list[dict]:

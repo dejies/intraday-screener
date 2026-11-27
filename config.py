@@ -147,6 +147,28 @@ TOP_N = 5
 BREAKOUT_BUFFER_PCT = 0.05      # price must clear the level by this % to count
 MIN_CONFIRMATIONS = 4           # of 5 (MACD, DMI, ADX, RVOL, VWAP) to label an alert "confirmed"
 
+# --- Breakout watch (screener/watch.py): a heads-up BEFORE a breakout, and how often one followed ------
+# Coiling (LOW alert): price at most WATCH_MAX_DIST_PCT below a resistance level (opening-range high,
+# previous day high, 52-week high, today's high) that was tested WATCH_MIN_TESTS times, while the last
+# WATCH_SQUEEZE_BARS 1-min candles shrank to WATCH_SQUEEZE_RATIO of the 20 before them.
+# Pressing (MEDIUM alert): at most WATCH_PRESS_DIST_PCT below the level, the last WATCH_PRESS_BARS candles'
+# volume at least WATCH_PRESS_VOLUME x the 20 before, and price above VWAP.
+# Every signal is saved with what happened in the next WATCH_OUTCOME_MINUTES: the dashboard's Breakout
+# watch tab shows the hit rate. Give it 2-3 weeks before reading anything into it.
+WATCH_ENABLED = True
+WATCH_MAX_DIST_PCT = 1.5        # coiling: price at most this far below the level
+WATCH_TOUCH_PCT = 0.15          # a test: a candle's high within this % of the level (its low at or under it)
+WATCH_MIN_TESTS = 2
+WATCH_SQUEEZE_BARS = 5          # coiling: the recent candles ...
+WATCH_SQUEEZE_RATIO = 0.5       # ... average high-low range at most this x the 20 candles before them
+WATCH_PRESS_DIST_PCT = 0.3      # pressing: price at most this far below the level
+WATCH_PRESS_BARS = 3            # pressing: the recent candles' average volume ...
+WATCH_PRESS_VOLUME = 1.2        # ... at least this x the 20 candles before them
+WATCH_MIN_AVG_BAR_VALUE = 5_00_000   # Rs traded per 1-min candle on average: skips illiquid stocks
+WATCH_COOLDOWN_MIN = 15         # at most one signal of a kind per stock in this window
+WATCH_OUTCOME_MINUTES = 10      # a hit = price cleared the level by BREAKOUT_BUFFER_PCT within this
+WATCH_UNTIL = "15:10"           # no new signals after this (IST)
+
 # --- Bar RVOL spike alerts (method from the reference intraday_scanner project) ---
 # Bar RVOL = volume of the latest *completed* candle / mean volume of the 20 completed
 # candles before it. Computed on its own 1-minute candles (one extra API call per stock
@@ -155,6 +177,13 @@ RVOL_SPIKE_ENABLED = True
 RVOL_SPIKE_INTERVAL_MIN = 1     # candle size for Bar RVOL (the reference uses 1-minute)
 RVOL_SPIKE_LOOKBACK_BARS = 20
 RVOL_ALERT_THRESHOLD = 2.5      # alert when Bar RVOL is greater than this
+# Volume-confirmed breakout (screener/pricevol.py): is volume backing the price move over the last
+# PV_BARS completed 1-min candles? price up + volume up = stronger breakout confirmation; price up + volume
+# down = caution; price down + volume up = stronger selling; price down + volume down = weak selling.
+PV_BARS = 3                     # candles in the window (a breakout alert also counts the forming minute)
+PV_PRICE_MIN_PCT = 0.2          # price "rises" / "falls" when it moved at least this much over them
+PV_VOLUME_UP = 1.5              # volume "rises" at or above this x the average of the 20 candles before
+PV_VOLUME_DOWN = 0.8            # volume "falls" at or below this
 # First bar that may alert. "auto" = 09:15 + LOOKBACK x INTERVAL (09:35 for 20 x 1-min), i.e. the
 # first bar whose 20-bar average is entirely today's. Earlier bars are compared with yesterday's
 # closing minutes, so any busy day "spikes" at the open. Set "09:15" to alert from the first bar.
@@ -311,8 +340,11 @@ ALERT_RULES = {
                            "cooldown_min": 30},
     "macd_bullish": {"enabled": True, "severity": "MEDIUM", "scope": "watch", "cooldown_min": 15},
     "vwap_cross": {"enabled": True, "severity": "MEDIUM", "scope": "watch", "cooldown_min": 15},
-    "breakout": {"enabled": True, "severity": "MEDIUM", "severity_confirmed": "HIGH"},   # OR / PDH / PDL / 52W
+    "breakout": {"enabled": True, "severity": "MEDIUM", "severity_confirmed": "HIGH",    # OR / PDH / PDL / 52W
+                 "volume_confirmed_high": True},   # HIGH also when volume confirms the move (screener/pricevol.py)
     "rvol": {"enabled": True, "severity": "MEDIUM"},                                       # 1-min Bar RVOL spike
+    "watch_coiling": {"enabled": True, "severity": "LOW"},       # Breakout watch: coiling under a level
+    "watch_pressing": {"enabled": True, "severity": "MEDIUM"},   # Breakout watch: pressing a level
     "feed": {"enabled": True, "after_seconds": 10},   # disconnected / stale this long -> CRITICAL; recovery -> LOW
     "data_error": {"enabled": True, "severity": "MEDIUM", "cooldown_min": 10},   # repeats within 10 min are counted
     "auth": {"enabled": True, "severity": "CRITICAL"},

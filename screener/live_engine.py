@@ -15,8 +15,11 @@ import time as _time
 from dataclasses import asdict
 from datetime import date, datetime, time, timedelta
 
+import pandas as pd
+
 from . import indicators as ind
 from . import logs
+from . import pricevol
 from .engine import (PRE_OPEN, ScreenerEngine, compute_daily_stats, compute_intraday,
                      expected_session_day, market_phase, price_band_reason)
 from .market_calendar import get_calendar
@@ -205,6 +208,28 @@ class LiveScreenerEngine(ScreenerEngine):
             return max((b.get("bar_rvol") or 0 for b in recent if start <= b["bar_time"] < boundary), default=0)
         rank = {s: i for i, s in enumerate(todo)}
         return sorted(todo, key=lambda s: (s not in watched, -burst(s), rank[s]))
+
+    def _live_pv(self, row: dict, now: datetime, bars: list[dict]) -> dict | None:
+        """Completed 1-min candles plus the forming minute from the feed, at its volume pace so far."""
+        sid = self.ids.get(row["symbol"])
+        forming = None
+        if sid is not None and hasattr(self.feed, "bar_arrays"):
+            try:
+                ts, o, c, v = self.feed.bar_arrays(("NSE_EQ", sid), last=2)
+                if len(ts):
+                    start = pd.Timestamp(ts[-1]).to_pydatetime()
+                    if start <= now < start + timedelta(minutes=1):
+                        forming = {"start": start, "open": float(o[-1]), "close": float(c[-1]), "volume": float(v[-1])}
+            except Exception as exc:                        # never let this stop an alert
+                log.debug("forming bar for %s: %s", row["symbol"], exc)
+        return pricevol.from_bars(bars, self.cfg, forming=forming, now=now)
+
+    def _watch_bars(self, sym: str):
+        """Today's 1-min candles from the feed (the forming one last), with highs and lows."""
+        sid = self.ids.get(sym)
+        if sid is None or not hasattr(self.feed, "bar_arrays_full"):
+            return None
+        return self.feed.bar_arrays_full(("NSE_EQ", sid))
 
     def _clock_speed(self) -> float:
         """Market-clock seconds per real second: 1 live, faster in the demo."""

@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import re
 import sys
 import threading
 import webbrowser
@@ -241,6 +242,14 @@ def create_app(engine: ScreenerEngine, cfg=None, settings_path: Optional[Path] =
         if news is None:
             return JSONResponse({"error": "news is switched off"}, status_code=409)
         return await run_in_threadpool(news.fetch_all, "manual")
+
+    @app.get("/api/watch")
+    def watch_view(day: Optional[str] = None, limit: int = 500):
+        """Breakout watch: ?day=YYYY-MM-DD (default today)&limit=500 - the newest signals with what followed,
+        and the hit rate over every signal."""
+        if day and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+            return JSONResponse({"error": "day must be YYYY-MM-DD"}, status_code=400)
+        return engine.watch_view(day or None, limit=max(1, min(limit, 5000)))
 
     @app.get("/api/token")
     def token_status():
